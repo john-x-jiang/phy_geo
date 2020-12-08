@@ -1,0 +1,58 @@
+{
+    "model_type": "physics",
+    "model_name": "test",
+    "learning_rate": 1e-4,
+    "batch_size": 16,
+    "num_epochs": 600,
+    "seq_len": 101,
+    "latent_dim": 20,
+    "in_dim":120,
+    "out_dim": 477,
+    "mid_dim_i": 60,
+    "mid_dim_o": 800,
+    "v_mid": 800,
+    "v_latent": 40,
+    "makegraph": 0,
+    "heart_torso": 1,
+    "anneal": 1,
+    "device": 0,
+    "sample": 1,
+    "graph_name": [
+        "z21_graclus_hier"
+    ],
+    "heart_name": [
+        "z21"
+    ],
+    "num_meshfree": [
+        597
+    ],
+    "structures": [
+        "EC"
+    ],
+    "val_graph": [
+        "z21_graclus_hier"
+    ],
+    "val_heart": [
+        "z21"
+    ],
+    "val_meshfree": [
+        597
+    ],
+    "val_structures": [
+        "EC"
+    ],
+    "opti_exps": [
+        "case3_test_ir_ic_11",
+        "case3_test_ir_ic_13",
+        "case3_test_ir_ic_12",
+        "case3_sep_e4"
+    ],
+    "acq_funs": [
+        "ei"
+    ],
+    "niter": 60,
+    "inipts": 5,
+    "vae_latest": "m_best",
+    "verbose_bo":1
+}
+  

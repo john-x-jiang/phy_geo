@@ -1,0 +1,78 @@
+{
+    "model_type": "heart",
+    "model_name": "h5",
+    "learning_rate": 5e-4,
+    "batch_size": 1,
+    "num_epochs": 300,
+    "latent_dim": 4,
+    "latent_seq": 10,
+    "seq_len": 101,
+    "nf": [
+        1,
+        16,
+        32,
+        64,
+        128,
+        256,
+        1024
+    ],
+    "ns": [
+        101,
+        80,
+        40,
+        20,
+        10
+    ],
+    "makegraph": 0,
+    "heart_torso": 0,
+    "anneal": 1,
+    "device": 0,
+    "sample": 1,
+    "subset": 1,
+    "graph_name": [
+        "EC_graclus_hier",
+        "DC_graclus_hier",
+        "AW_graclus_hier"
+    ],
+    "heart_name": [
+        "EC",
+        "DC",
+        "AW"
+    ],
+    "num_meshfree": [
+        477,
+        490,
+        512
+    ],
+    "structures": [
+        "EC",
+        "DC",
+        "AW"
+    ],
+    "val_graph": [
+        "EC_graclus_hier"
+    ],
+    "val_heart": [
+        "EC"
+    ],
+    "val_meshfree": [
+        477
+    ],
+    "val_structures": [
+        "EC"
+    ],
+    "opti_exps": [
+        "case3_test_ir_ic_11",
+        "case3_test_ir_ic_13",
+        "case3_test_ir_ic_12",
+        "case3_sep_e4"
+    ],
+    "acq_funs": [
+        "ei"
+    ],
+    "niter": 60,
+    "inipts": 5,
+    "vae_latest": "m_best",
+    "verbose_bo":1
+}
+  
