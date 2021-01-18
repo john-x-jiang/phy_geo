@@ -67,10 +67,17 @@ def calc_AT(u, M):
     M_AT[x_scar] = 200
 
     #m,n=u_AT.shape
+    count = 0
     for i in range(m):
         true_AT = u_AT[i, :]
         x_AT = M_AT[i, :]
-        corr_coeff = corr_coeff + stats.pearsonr(true_AT, x_AT)[0]
+        if (x_AT == x_AT[0]).all() and (true_AT == true_AT[0]).all():
+            corr_coeff = corr_coeff + 1
+        elif (x_AT == x_AT[0]).all() or (true_AT == true_AT[0]).all():
+            count += 1
+            continue
+        else:
+            corr_coeff = corr_coeff + stats.pearsonr(true_AT, x_AT)[0]
 
     return corr_coeff / m
 

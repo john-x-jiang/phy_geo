@@ -1,6 +1,8 @@
 import pickle
 import copy
 import numpy as np
+import scipy.io
+import os
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -12,237 +14,6 @@ from Spline import SplineSample
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-class TorsoHeart(nn.Module):
-    def __init__(self, hparams):
-        super().__init__()
-        self.batch_size = hparams.batch_size
-        self.seq_len = hparams.seq_len
-        self.in_dim = hparams.in_dim
-        self.out_dim = hparams.out_dim
-        self.latent_dim = hparams.latent_dim
-        self.mid_dim_i = hparams.mid_dim_i
-        self.mid_dim_o = hparams.mid_dim_o
-        self.v_mid = hparams.v_mid
-        self.v_latent = hparams.v_latent
-
-        # encoder
-        self.fc1 = nn.LSTM(self.in_dim, self.mid_dim_i)
-        self.fc21 = nn.LSTM(self.mid_dim_i, self.latent_dim)
-        self.fc22 = nn.LSTM(self.mid_dim_i, self.latent_dim)
-        self.lin1 =nn.Linear(self.latent_dim * self.seq_len, self.v_mid)
-        self.lin2 =nn.Linear(self.v_mid, self.v_latent)
-
-        # decoder
-        self.lin3 = nn.Linear(self.v_latent, self.v_mid)
-        self.lin4 = nn.Linear(self.v_mid, self.latent_dim * self.seq_len)
-        self.fc3 = nn.LSTM(self.latent_dim, self.mid_dim_o)
-        self.fc41 = nn.LSTM(self.mid_dim_o, self.out_dim)
-        self.fc42 = nn.LSTM(self.mid_dim_o, self.out_dim)
-
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-    
-    def encode(self, x, heart_name):
-        x = x.view(self.batch_size, -1, self.seq_len)
-        x = x.permute(2, 0, 1).contiguous()
-        _, B, _ = x.shape
-        out, hidden = self.fc1(x)
-        h1 = self.relu(out)
-        out21, hidden21 = self.fc21(h1)
-        outMean = out21.permute(1, 2, 0).contiguous().view(B,-1)
-        outMean = self.relu(self.lin1(outMean))
-        outMean = self.relu(self.lin2(outMean))
-        out22, hidden22 = self.fc22(h1)
-        outVar = out22.permute(1, 2, 0).contiguous().view(B, -1)
-        outVar = self.relu(self.lin1(outVar))
-        outVar = self.relu(self.lin2(outVar))
-        return outMean, outVar
-    
-    def reparameterize(self, mu, logvar):
-        if self.training:
-            std = logvar.mul(0.5).exp_()
-            eps = Variable(std.data.new(std.size()).normal_())
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
-    
-    def decode(self, z, heart_name):
-        B, _ = z.shape
-        z1 = self.relu(self.lin3(z))
-        z2 = self.relu(self.lin4(z1))
-        z = z2.view(B, self.latent_dim,-1).permute(2, 0, 1)
-
-        out3, hidden3 = self.fc3(z)
-        h3 = self.relu(out3)
-        out1,hidden1 = self.fc41(h3)
-        out2, hidden2 = self.fc42(h3)
-        out1 = out1.permute(1, 2, 0).contiguous()
-        out2 = out2.permute(1, 2, 0).contiguous()
-        return out1, out2
-    
-    def forward(self, x, heart_name):
-        mu, logvar = self.encode(x, heart_name)
-        z = self.reparameterize(mu, logvar)
-        mu_theta, logvar_theta = self.decode(z, heart_name)
-        return (mu_theta, logvar_theta), mu, logvar
-
-
-class GraphHeart(nn.Module):
-    def __init__(self, hparams):
-        super().__init__()
-        self.nf = hparams.nf
-        self.ns = hparams.ns
-        self.batch_size = hparams.batch_size
-        self.seq_len = hparams.seq_len
-        self.latent_dim = hparams.latent_dim
-        self.latent_seq = hparams.latent_seq
-
-        self.conv1 = st_gcn(self.nf[0], self.nf[1], self.ns[0], self.ns[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv2 = st_gcn(self.nf[1], self.nf[2], self.ns[1], self.ns[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv3 = st_gcn(self.nf[2], self.nf[3], self.ns[2], self.ns[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv4 = st_gcn(self.nf[3], self.nf[4], self.ns[3], self.ns[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
-
-        self.fce1 = nn.Conv2d(self.nf[4], self.nf[-1], 1)
-        self.fce21 = nn.Conv2d(self.nf[-1], self.latent_dim, 1)
-        self.fce22 = nn.Conv2d(self.nf[-1], self.latent_dim, 1)
-        
-        self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[-1], 1)
-        self.fcd4 = nn.Conv2d(self.nf[-1], self.nf[4], 1)
-
-        self.deconv4 = st_gcn(self.nf[4], self.nf[3], self.ns[4], self.ns[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv3 = st_gcn(self.nf[3], self.nf[2], self.ns[3], self.ns[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv2 = st_gcn(self.nf[2], self.nf[1], self.ns[2], self.ns[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv1 = st_gcn(self.nf[1], self.nf[0], self.ns[1], self.ns[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
-
-        self.bg = dict()
-        self.bg1 = dict()
-        self.bg2 = dict()
-        self.bg3 = dict()
-        # self.bg4 = dict()
-        # self.bg5 = dict()
-        # self.bg6 = dict()
-
-        self.P10 = dict()
-        self.P21 = dict()
-        self.P32 = dict()
-        self.P43 = dict()
-        # self.P54 = dict()
-        # self.P65 = dict()
-
-        self.P01 = dict()
-        self.P12 = dict()
-        self.P23 = dict()
-        self.P34 = dict()
-
-    def set_graphs(self, gParams, heart_name):
-        self.bg[heart_name] = gParams["bg"]
-        self.bg1[heart_name] = gParams["bg1"]
-        self.bg2[heart_name] = gParams["bg2"]
-        self.bg3[heart_name] = gParams["bg3"]
-        # self.bg4[heart_name] = gParams["bg4"]
-        # self.bg5[heart_name] = gParams["bg5"]
-        # self.bg6[heart_name] = gParams["bg6"]
-        
-        self.P10[heart_name] = gParams["P10"]
-        self.P21[heart_name] = gParams["P21"]
-        self.P32[heart_name] = gParams["P32"]
-        self.P43[heart_name] = gParams["P43"]
-        # self.P54[heart_name] = gParams["P54"]
-        # self.P65[heart_name] = gParams["P65"]
-
-        self.P01[heart_name] = gParams["P01"]
-        self.P12[heart_name] = gParams["P12"]
-        self.P23[heart_name] = gParams["P23"]
-        self.P34[heart_name] = gParams["P34"]
-    
-    def encode(self, data, heart_name):
-        """ graph convolutional encoder
-        """
-        # layer 1 (graph setup, conv, nonlinear, pool)
-        x, edge_index, edge_attr = \
-            data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr  # (1230*bs) X f[0]
-        x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
-        x = x.view(self.batch_size, -1, self.nf[1] * self.ns[1])
-        x = torch.matmul(self.P01[heart_name], x)  # bs X 648 X f[1]
-        
-        # layer 2
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[1], self.ns[1]), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
-        x = self.conv2(x, edge_index, edge_attr)  # 648*bs X f[2]
-        x = x.view(self.batch_size, -1, self.nf[2] * self.ns[2])
-        x = torch.matmul(self.P12[heart_name], x)  # bs X 347 X f[2]
-        
-        # layer 3
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.ns[2]), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
-        x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
-        x = x.view(self.batch_size, -1, self.nf[3] * self.ns[3])
-        x = torch.matmul(self.P23[heart_name], x)  # bs X 184 X f[3]
-
-        # layer 4
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.ns[3]), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
-        x = self.conv4(x, edge_index, edge_attr)  # 347*bs X f[3]
-        x = x.view(self.batch_size, -1, self.nf[4] * self.ns[4])
-        x = torch.matmul(self.P34[heart_name], x)  # bs X 184 X f[3]
-        x = x.view(self.batch_size, -1, self.nf[4], self.ns[4])
-
-        # latent
-        x = x.permute(0, 2, 1, 3).contiguous()
-        x = F.elu(self.fce1(x), inplace=True)
-
-        mu = self.fce21(x)
-        logvar = self.fce22(x)
-        return mu, logvar
-    
-    def reparameterize(self, mu, logvar):
-        """ reparameterization; draw a random sample from the p(z|x)
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return eps.mul(std).add_(mu)
-    
-    def decode(self, z, heart_name):
-        """ graph  convolutional decoder
-        """
-        x = F.elu(self.fcd3(z), inplace=True)
-        x = F.elu(self.fcd4(x), inplace=True)
-        x = x.permute(0, 2, 1, 3).contiguous()
-
-        x = x.view(self.batch_size, -1, self.nf[4] * self.ns[4])
-        x = torch.matmul(self.P43[heart_name], x)  # bs X 184 X f[4]
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[4], self.ns[4]), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
-        x = self.deconv4(x, edge_index, edge_attr)  # (bs*184) X f[3]
-
-        x = x.view(self.batch_size, -1, self.nf[3] * self.ns[3])
-        x = torch.matmul(self.P32[heart_name], x)  # bs X 351 X f[3]
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.ns[3]), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
-        x = self.deconv3(x, edge_index, edge_attr)  # (bs*351) X f[2]
-
-        x = x.view(self.batch_size, -1, self.nf[2] * self.ns[2])
-        x = torch.matmul(self.P21[heart_name], x)  # bs X 646 X f[2]
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.ns[2]), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
-        x = self.deconv2(x, edge_index, edge_attr)  # (bs*646) X f[1]
-
-        x = x.view(self.batch_size, -1, self.nf[1] * self.ns[1])
-        x = torch.matmul(self.P10[heart_name], x)  # bs X 1230 X f[1]
-        x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[1], self.ns[1]), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
-        x = self.deconv1(x, edge_index, edge_attr)  # (bs*1230) X f[0]
-
-        x = x.view(-1, self.nf[0], self.seq_len)
-        return x
-    
-    def forward(self, data, heart_name):
-        # erase all heart signal
-        mu, logvar = self.encode(data, heart_name)
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z, heart_name), mu, logvar
 
 
 class GraphTorsoHeart(nn.Module):
@@ -300,6 +71,10 @@ class GraphTorsoHeart(nn.Module):
         self.t_P12 = dict()
         self.t_P23 = dict()
 
+        self.h_L = dict()
+        self.t_L = dict()
+        self.H = dict()
+
     def set_graphs(self, gParams, heart_name):
         self.bg[heart_name] = gParams["bg"]
         self.bg1[heart_name] = gParams["bg1"]
@@ -327,6 +102,11 @@ class GraphTorsoHeart(nn.Module):
 
         self.H_inv[heart_name] = gParams["H_inv"]
         self.P[heart_name] = gParams["P"]
+
+    def set_physics(self, h_L, t_L, H, heart_name):
+        self.h_L[heart_name] = h_L
+        self.t_L[heart_name] = t_L
+        self.H[heart_name] = H
     
     def encode(self, data, heart_name):
         """ graph convolutional encoder
@@ -426,13 +206,24 @@ class GraphTorsoHeart(nn.Module):
 
         x = x.view(-1, self.nf[0], self.seq_len)
         return x
+
+    def physics(self, phi_t, phi_h, heart_name):
+        phi_t = phi_t.view(self.batch_size, -1, self.seq_len)
+        phi_h = phi_h.view(self.batch_size, -1, self.seq_len)
+        # laplacian
+        # l_t = torch.matmul(self.t_L[heart_name], phi_t)
+        l_h = torch.matmul(self.h_L[heart_name], phi_h)
+        phi_t_ = torch.matmul(self.H[heart_name], phi_h)
+        return phi_t_, l_h, None
     
-    def forward(self, data, heart_name):
+    def forward(self, phi_t, heart_name):
         # erase all heart signal
-        mu = self.encode(data, heart_name)
+        mu = self.encode(phi_t, heart_name)
         # z = self.reparameterize(mu, logvar)
         z = self.inverse(mu, heart_name)
-        return self.decode(z, heart_name), torch.zeros_like(mu), torch.zeros_like(mu)
+        phi_h = self.decode(z, heart_name)
+        phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
+        return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
 
 
 class st_gcn(nn.Module):
@@ -540,7 +331,7 @@ def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
     return selected_edges, selected_attrs
 
 
-def loss_stgcnn(recon_x, x, mu, logvar, *args):
+def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, smooth, *args):
     """ VAE Loss: Reconstruction + KL divergence losses summed over all elements and batch
     """
     batch_size = args[0]
@@ -557,16 +348,32 @@ def loss_stgcnn(recon_x, x, mu, logvar, *args):
     #         anneal_param = 1
     # else:
     #     anneal_param = 1
-    shape1 = np.prod(x.shape)
-    shape2 = np.prod(mu.shape)
+
+    if phy_mode == 0:
+        r1, r2 = 1, 0
+    elif phy_mode == 1:
+        r1, r2 = 0, 1
+    else:
+        r1, r2 = 1, 1
+
+    shape1 = np.prod(x.shape) / (batch_size * seq_len)
+    shape2 = np.prod(y.shape) / (batch_size * seq_len)
+    shape3 = np.prod(mu.shape) / (batch_size * 20)
 
     BCE = F.mse_loss(recon_x, x, reduction='sum')
     KLD = -0.5 * anneal * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    PHY = F.mse_loss(recon_y, y, reduction='sum')
+    l_h = l_h.view(-1, seq_len)
+    SMOOTH = F.mse_loss(l_h, torch.zeros_like(l_h), reduction='sum')
 
-    BCE = BCE / shape1
-    KLD = KLD / shape2
+    # BCE = BCE / shape1
+    # KLD = KLD / shape3
+    # PHY = PHY / shape2
+    # SMOOTH = SMOOTH / shape1
 
-    return BCE + KLD, BCE, KLD
+    TOTAL = r1 * BCE + KLD + r2 * PHY + smooth * SMOOTH
+
+    return TOTAL, BCE, KLD, PHY, SMOOTH
 
 
 def loss_variation(recon_x, x, mu, logvar, *args):
@@ -587,35 +394,35 @@ def loss_variation(recon_x, x, mu, logvar, *args):
     return BCE + anneal * KLD, BCE, KLD
 
 
-def loss_bottleneck(mu_theta, logvar_theta, x, mu, logvar, *args):
-    batch_size = args[0]
-    seq_len = args[1]
-    epoch = args[2]
-    anneal = args[3]
+# def loss_bottleneck(mu_theta, logvar_theta, x, mu, logvar, *args):
+#     batch_size = args[0]
+#     seq_len = args[1]
+#     epoch = args[2]
+#     anneal = args[3]
 
-    if anneal:
-        if epoch < 50:
-            anneal_param = 0
-        elif epoch < 500:
-            anneal_param = epoch / 500
-        else:
-            anneal_param = 1
-    else:
-        anneal_param = 1
+#     if anneal:
+#         if epoch < 50:
+#             anneal_param = 0
+#         elif epoch < 500:
+#             anneal_param = epoch / 500
+#         else:
+#             anneal_param = 1
+#     else:
+#         anneal_param = 1
 
-    shape1 = np.prod(x.shape)
+#     shape1 = np.prod(x.shape)
 
-    diffSq = (x - mu_theta).pow(2)
-    precis = torch.exp(-logvar_theta)
+#     diffSq = (x - mu_theta).pow(2)
+#     precis = torch.exp(-logvar_theta)
 
-    BCE = 0.5 * torch.sum(logvar_theta + torch.mul(diffSq, precis))
-    BCE /= shape1
+#     BCE = 0.5 * torch.sum(logvar_theta + torch.mul(diffSq, precis))
+#     BCE /= shape1
 
-    KLD = -0.5 * anneal_param * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    # Normalise by same number of elements as in reconstruction
-    KLD /= shape1
+#     KLD = -0.5 * anneal_param * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+#     # Normalise by same number of elements as in reconstruction
+#     KLD /= shape1
 
-    return BCE + anneal * KLD, BCE, KLD
+#     return BCE + anneal * KLD, BCE, KLD
 
 
 def load_graph(filename, heart_torso=0):
@@ -832,3 +639,20 @@ def get_graphparams(filename, device, batch_size, heart_torso=0):
         }
 
     return graphparams
+
+
+def get_physics(phy_dir, heart_name, device):
+    mat_files = scipy.io.loadmat(os.path.join(phy_dir, heart_name, 'h_L.mat'), squeeze_me=True, struct_as_record=False)
+    h_L = mat_files['h_L']
+    # mat_files = scipy.io.loadmat(os.path.join(phy_dir, heart_name, 't_L.mat'), squeeze_me=True, struct_as_record=False)
+    # t_L = mat_files['t_L']
+    mat_files = scipy.io.loadmat(os.path.join(phy_dir, heart_name, 'H.mat'), squeeze_me=True, struct_as_record=False)
+    H = mat_files['H']
+
+    h_L = torch.from_numpy(h_L).float().to(device)
+    print('Load heart Laplacian: {} x {}'.format(h_L.shape[0], h_L.shape[1]))
+    # t_L = torch.from_numpy(t_L).float().to(device)
+    # print('Load torso Laplacian: {} x {}'.format(t_L.shape[0], t_L.shape[1]))
+    H = torch.from_numpy(H).float().to(device)
+    print('Load H matrix: {} x {}'.format(H.shape[0], H.shape[1]))
+    return h_L, None, H

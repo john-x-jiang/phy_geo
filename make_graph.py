@@ -2,7 +2,7 @@ import argparse
 import os
 import os.path as osp
 import torch
-import mesh2
+import mesh2diff
 import utils
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -53,5 +53,5 @@ for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_na
     root_dir = osp.join(data_dir, heart_name)
     graph_dir = osp.join(root_dir, 'raw', graph_name)
     # Create graph and load graph information
-    g = mesh2.GraphPyramid(heart_name, structure, num_meshfree, seq_len)
+    g = mesh2diff.GraphPyramid(heart_name, structure, num_meshfree, seq_len)
     g.make_graph(heart_name)
