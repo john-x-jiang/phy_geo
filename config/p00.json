@@ -1,8 +1,8 @@
 {
     "model_type": "physics",
-    "model_name": "p02",
+    "model_name": "p00",
     "learning_rate": 5e-4,
-    "batch_size": 1,
+    "batch_size": 4,
     "num_epochs": 300,
     "latent_dim": 30,
     "latent_seq": 20,
@@ -30,48 +30,16 @@
     "sample": 1,
     "subset": 1,
     "graph_name": [
-        "heart_graclus_hier",
-        "h20_graclus_hier",
-        "h10_graclus_hier",
-        "h-10_graclus_hier",
-        "h-20_graclus_hier",
-        "h-30_graclus_hier",
-        "h-40_graclus_hier",
-        "h-50_graclus_hier",
-        "h-60_graclus_hier"
+        "heart_graclus_hier"
     ],
     "heart_name": [
-        "heart",
-        "h20",
-        "h10",
-        "h-10",
-        "h-20",
-        "h-30",
-        "h-40",
-        "h-50",
-        "h-60"
+        "heart"
     ],
     "num_meshfree": [
-        1906,
-        1906,
-        1906,
-        1906,
-        1906,
-        1906,
-        1906,
-        1906,
         1906
     ],
     "structures": [
-        "demo",
-        "h20",
-        "h10",
-        "h-10",
-        "h-20",
-        "h-30",
-        "h-40",
-        "h-50",
-        "h-60"
+        "demo"
     ],
     "val_graph": [
         "heart_graclus_hier"

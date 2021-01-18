@@ -1,0 +1,63 @@
+{
+    "model_type": "physics",
+    "model_name": "p03",
+    "learning_rate": 5e-4,
+    "batch_size": 16,
+    "num_epochs": 500,
+    "latent_dim": 30,
+    "latent_seq": 20,
+    "seq_len": 101,
+    "nf": [
+        1,
+        16,
+        32,
+        64,
+        128,
+        256,
+        1024
+    ],
+    "ns": [
+        101,
+        80,
+        60,
+        40,
+        20
+    ],
+    "makegraph": 0,
+    "heart_torso": 1,
+    "anneal": 0,
+    "device": 0,
+    "sample": 1,
+    "subset": 1,
+    "phy_mode": 0,
+    "smooth": 0,
+    "graph_name": [
+        "z21_graclus_hier"
+    ],
+    "heart_name": [
+        "z21"
+    ],
+    "num_meshfree": [
+        568
+    ],
+    "structures": [
+        "z21"
+    ],
+    "val_graph": [
+        "z21_graclus_hier"
+    ],
+    "val_heart": [
+        "z21"
+    ],
+    "val_meshfree": [
+        568
+    ],
+    "val_structures": [
+        "21"
+    ],
+    "niter": 60,
+    "inipts": 5,
+    "vae_latest": "m_best",
+    "verbose_bo":1
+}
+  
