@@ -2,8 +2,8 @@
     "model_type": "physics",
     "model_name": "p06",
     "learning_rate": 5e-4,
-    "batch_size": 16,
-    "num_epochs": 500,
+    "batch_size": 1,
+    "num_epochs": 300,
     "latent_dim": 30,
     "latent_seq": 20,
     "seq_len": 101,
@@ -30,7 +30,7 @@
     "sample": 1,
     "subset": 1,
     "phy_mode": 1,
-    "smooth": 6e-5,
+    "smooth": 5e-3,
     "graph_name": [
         "z21_graclus_hier"
     ],
@@ -55,8 +55,6 @@
     "val_structures": [
         "21"
     ],
-    "niter": 60,
-    "inipts": 5,
     "vae_latest": "m_best",
     "verbose_bo":1
 }
