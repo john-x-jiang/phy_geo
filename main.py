@@ -79,7 +79,8 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     subset = 1
 
     # initialize the model
-    model = net.GraphTorsoHeart(hparams)
+    # model = net.GraphTorsoHeart(hparams)
+    model = net.GraphPhys(hparams)
     
     for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)
@@ -213,6 +214,7 @@ if __name__ == '__main__':
     json_path = osp.join(osp.dirname(osp.realpath('__file__')), "config", fname_config)
     net_path = osp.join(osp.dirname(osp.realpath('__file__')), 'net.py')
     hparams = utils.Params(json_path)
+    torch.cuda.set_device(hparams.device)
 
     if args.stage == 1:  # generative modeling
         print('Stage 1: begin training vae for heart & torso ...')

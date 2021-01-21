@@ -11,6 +11,7 @@ from torch.autograd import Variable
 from torch_geometric.data import DataLoader
 from data_utils import HeartEmptyGraphDataset
 from Spline import SplineSample
+from nn_modules import *
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -112,7 +113,6 @@ class GraphTorsoHeart(nn.Module):
         """ graph convolutional encoder
         """
         # layer 1 (graph setup, conv, nonlinear, pool)
-        # x = data * 1e3
         x, edge_index, edge_attr = \
             data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
         x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
@@ -152,7 +152,7 @@ class GraphTorsoHeart(nn.Module):
     def inverse(self, z, heart_name):
         x = z.view(self.batch_size, self.latent_dim, -1, self.latent_seq)
 
-        x = z.permute(0, 2, 1, 3).contiguous()
+        x = x.permute(0, 2, 1, 3).contiguous()
         edge_index, edge_attr = self.H_inv[heart_name].edge_index, self.H_inv[heart_name].edge_attr
         
         num_heart = self.P43[heart_name].shape[1]
@@ -217,7 +217,6 @@ class GraphTorsoHeart(nn.Module):
         return phi_t_, l_h, None
     
     def forward(self, phi_t, heart_name):
-        # erase all heart signal
         mu = self.encode(phi_t, heart_name)
         # z = self.reparameterize(mu, logvar)
         z = self.inverse(mu, heart_name)
@@ -226,109 +225,220 @@ class GraphTorsoHeart(nn.Module):
         return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
 
 
-class st_gcn(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 in_seq,
-                 out_seq,
-                 dim,
-                 kernel_size,
-                 process,
-                 stride=1,
-                 padding=0,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True,
-                 sample_rate=None):
+class GraphPhys(nn.Module):
+    def __init__(self, hparams):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.sample_rate = sample_rate
+        self.nf = hparams.nf
+        self.ns = hparams.ns
+        self.batch_size = hparams.batch_size
+        self.seq_len = hparams.seq_len
+        self.latent_dim = hparams.latent_dim
+        self.latent_seq = hparams.latent_seq
 
-        self.gcn = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0], norm=False)
+        self.conv1 = gcn(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = gcn(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
 
-        if process == 'e':
-            self.tcn = nn.Sequential(
-                nn.Conv2d(
-                    in_seq,
-                    out_seq,
-                    kernel_size[1],
-                    stride,
-                    padding
-                ),
-                nn.ELU(inplace=True)
-            )
-        elif process == 'd':
-            self.tcn = nn.Sequential(
-                nn.ConvTranspose2d(
-                    in_seq,
-                    out_seq,
-                    kernel_size[1],
-                    stride,
-                    padding
-                ),
-                nn.ELU(inplace=True)
-            )
-        else:
-            raise NotImplementedError
+        self.fce1 = nn.Conv2d(self.nf[4], self.nf[-1], 1)
+        self.fce2 = nn.Conv2d(self.nf[-1], self.latent_dim, 1)
+
+        self.gru = ReverseGRU(input_dim=self.latent_dim, hidden_dim=self.latent_dim * 2, kernel_size=3, dim=3, norm=False)
+
+        self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.residual = nn.Sequential(
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=1,
-                stride=(stride, 1)
-            ),
-            nn.ELU(inplace=True)
-        )
+        self.gde_layer = GDE_func(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False)
+        self.gde_solver = GDE_block(self.gde_layer, method='euler', adjoint=False)
 
-    def forward(self, x, edge_index, edge_attr):
-        N, V, C, T = x.shape
-        x = x.permute(0, 2, 3, 1).contiguous()
-        res = self.residual(x)
-        x = x.permute(0, 3, 1, 2).contiguous()
+        self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[-1], 1)
+        self.fcd4 = nn.Conv2d(self.nf[-1], self.nf[5], 1)
 
-        x = x.permute(3, 0, 1, 2).contiguous()
-        x = x.view(-1, C)
-        edge_index, edge_attr = expand(N, V, T, edge_index, edge_attr, self.sample_rate)
-        x = F.elu(self.gcn(x, edge_index, edge_attr), inplace=True)
-        x = x.view(T, N, V, -1)
-        x = x.permute(1, 3, 0, 2).contiguous()
+        self.deconv4 = gcn(self.nf[5], self.nf[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv3 = gcn(self.nf[3], self.nf[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv2 = gcn(self.nf[2], self.nf[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv1 = gcn(self.nf[1], self.nf[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
 
-        x = x + res
-        x = F.elu(x, inplace=True)
+        self.bg = dict()
+        self.bg1 = dict()
+        self.bg2 = dict()
+        self.bg3 = dict()
+        self.bg4 = dict()
+        # self.bg5 = dict()
+        # self.bg6 = dict()
+
+        self.P10 = dict()
+        self.P21 = dict()
+        self.P32 = dict()
+        self.P43 = dict()
+        # self.P54 = dict()
+        # self.P65 = dict()
+
+        self.tg = dict()
+        self.tg1 = dict()
+        self.tg2 = dict()
+        self.tg3 = dict()
+
+        self.H_inv = dict()
+        self.P = dict()
+
+        self.t_P01 = dict()
+        self.t_P12 = dict()
+        self.t_P23 = dict()
+
+        self.h_L = dict()
+        self.t_L = dict()
+        self.H = dict()
+
+    def set_graphs(self, gParams, heart_name):
+        self.bg[heart_name] = gParams["bg"]
+        self.bg1[heart_name] = gParams["bg1"]
+        self.bg2[heart_name] = gParams["bg2"]
+        self.bg3[heart_name] = gParams["bg3"]
+        self.bg4[heart_name] = gParams["bg4"]
+        # self.bg5[heart_name] = gParams["bg5"]
+        # self.bg6[heart_name] = gParams["bg6"]
+        
+        self.P10[heart_name] = gParams["P10"]
+        self.P21[heart_name] = gParams["P21"]
+        self.P32[heart_name] = gParams["P32"]
+        self.P43[heart_name] = gParams["P43"]
+        # self.P54[heart_name] = gParams["P54"]
+        # self.P65[heart_name] = gParams["P65"]
+
+        self.tg[heart_name] = gParams["t_bg"]
+        self.tg1[heart_name] = gParams["t_bg1"]
+        self.tg2[heart_name] = gParams["t_bg2"]
+        self.tg3[heart_name] = gParams["t_bg3"]
+
+        self.t_P01[heart_name] = gParams["t_P01"]
+        self.t_P12[heart_name] = gParams["t_P12"]
+        self.t_P23[heart_name] = gParams["t_P23"]
+
+        self.H_inv[heart_name] = gParams["H_inv"]
+        self.P[heart_name] = gParams["P"]
+
+    def set_physics(self, h_L, t_L, H, heart_name):
+        self.h_L[heart_name] = h_L
+        self.t_L[heart_name] = t_L
+        self.H[heart_name] = H
+    
+    def encode(self, data, heart_name):
+        """ graph convolutional encoder
+        """
+        # layer 1 (graph setup, conv, nonlinear, pool)
+        x, edge_index, edge_attr = \
+            data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
+        x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
+        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
+        x = torch.matmul(self.t_P01[heart_name], x)  # bs X 648 X f[1]
+        
+        # layer 2
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+        x = self.conv2(x, edge_index, edge_attr)  # 648*bs X f[2]
+        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
+        x = torch.matmul(self.t_P12[heart_name], x)  # bs X 347 X f[2]
+        
+        # layer 3
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+        x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
+        x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
+        x = torch.matmul(self.t_P23[heart_name], x)  # bs X 184 X f[3]
+        # x = x.view(self.batch_size, -1, self.nf[4], self.seq_len)
+
+        # latent
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
+        x = x.permute(0, 2, 1, 3).contiguous()
+        x = F.elu(self.fce1(x), inplace=True)
+        x = F.elu(self.fce2(x), inplace=True)
+
+        x = x.permute(0, 2, 1, 3).contiguous()
+        x = self.gru(x, edge_index, edge_attr)
+        x = x.view(self.batch_size, -1, 2 * self.latent_dim)
+        mu = x[:, :, :self.latent_dim]
+        logvar = x[:, :, self.latent_dim:]
+        return mu, logvar
+    
+    def reparameterize(self, mu, logvar):
+        """ reparameterization; draw a random sample from the p(z|x)
+        """
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add_(mu)
+    
+    def inverse(self, x, heart_name):
+        edge_index, edge_attr = self.H_inv[heart_name].edge_index, self.H_inv[heart_name].edge_attr
+        
+        num_heart = self.P43[heart_name].shape[1]
+        num_torso = self.t_P23[heart_name].shape[0]
+        
+        x_bin = torch.zeros(self.batch_size, num_heart, self.latent_dim).to(device)
+        x_bin = torch.cat((x_bin, x), 1)
+        
+        x_bin = x_bin.view(-1, self.latent_dim)
+        edge_index, edge_attr = expand(self.batch_size, num_heart + num_torso, 1, edge_index, edge_attr)
+
+        x_bin = self.trans(x_bin, edge_index, edge_attr)
+        x_bin = x_bin.view(self.batch_size, -1, self.latent_dim)
+        
+        x_bin = x_bin[:, 0:-num_torso, :]
+        return x_bin
+    
+    def decode(self, x, heart_name):
+        """ graph  convolutional decoder
+        """
+        edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
+        import ipdb; ipdb.set_trace()
+        x = self.gde_solver((x, edge_index, edge_attr), self.seq_len)
+
+        x = F.elu(self.fcd3(x), inplace=True)
+        x = F.elu(self.fcd4(x), inplace=True)
         x = x.permute(0, 2, 1, 3).contiguous()
 
-        x = self.tcn(x)
-        return x.permute(0, 3, 2, 1).contiguous()
+        x = x.view(self.batch_size, -1, self.nf[5] * self.seq_len)
+        x = torch.matmul(self.P43[heart_name], x)  # bs X 184 X f[4]
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[5], self.seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+        x = self.deconv4(x, edge_index, edge_attr)  # (bs*184) X f[3]
 
+        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
+        x = torch.matmul(self.P32[heart_name], x)  # bs X 351 X f[3]
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+        x = self.deconv3(x, edge_index, edge_attr)  # (bs*351) X f[2]
 
-def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
-    # edge_attr = edge_attr.repeat(T, 1)
-    num_edges = int(edge_index.shape[1] / batch_size)
-    edge_index = edge_index[:, 0:num_edges]
-    edge_attr = edge_attr[0:num_edges, :]
+        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
+        x = torch.matmul(self.P21[heart_name], x)  # bs X 646 X f[2]
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+        x = self.deconv2(x, edge_index, edge_attr)  # (bs*646) X f[1]
+
+        x = x.view(self.batch_size, -1, self.nf[1] * self.seq_len)
+        x = torch.matmul(self.P10[heart_name], x)  # bs X 1230 X f[1]
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[1], self.seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+        x = self.deconv1(x, edge_index, edge_attr)  # (bs*1230) X f[0]
+
+        x = x.view(-1, self.nf[0], self.seq_len)
+        return x
+
+    def physics(self, phi_t, phi_h, heart_name):
+        phi_t = phi_t.view(self.batch_size, -1, self.seq_len)
+        phi_h = phi_h.view(self.batch_size, -1, self.seq_len)
+        # laplacian
+        # l_t = torch.matmul(self.t_L[heart_name], phi_t)
+        l_h = torch.matmul(self.h_L[heart_name], phi_h)
+        phi_t_ = torch.matmul(self.H[heart_name], phi_h)
+        return phi_t_, l_h, None
     
-
-    sample_number = int(sample_rate * num_edges) if sample_rate is not None else num_edges
-    selected_edges = torch.zeros(edge_index.shape[0], batch_size * T * sample_number).to(device)
-    selected_attrs = torch.zeros(batch_size * T * sample_number, edge_attr.shape[1]).to(device)
-
-    for i in range(batch_size * T):
-        chunk = edge_index + num_nodes * i
-        if sample_rate is not None:
-            index = np.random.choice(num_edges, sample_number, replace=False)
-            index = np.sort(index)
-        else:
-            index = np.arange(num_edges)
-        selected_edges[:, sample_number * i:sample_number * (i + 1)] = chunk[:, index]
-        selected_attrs[sample_number * i:sample_number * (i + 1), :] = edge_attr[index, :]
-
-    selected_edges = selected_edges.long()
-    return selected_edges, selected_attrs
+    def forward(self, phi_t, heart_name):
+        mu, logvar = self.encode(phi_t, heart_name)
+        z = self.reparameterize(mu, logvar)
+        z = self.inverse(mu, heart_name)
+        phi_h = self.decode(z, heart_name)
+        phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
+        return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
 
 
 def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, smooth, *args):
