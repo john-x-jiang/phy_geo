@@ -7,9 +7,10 @@
    1. seq_len: the length of the input time sequence
    2. latent_dim: the dimension of the latent feature
    3. nf: the number of the feature in each layer
-   4. sample: the keeping rate of edges in a graph
-   5. subset: the keeping rate of the input dataset
-   6. smooth: the smoothing parameter of the regularization term
+   4. anneal: when using stochastic model, this can be used as the parameter of the KLD term
+   5. sample: the keeping rate of edges in a graph
+   6. subset: the keeping rate of the input dataset
+   7. smooth: the smoothing parameter of the regularization term
 5. To train the model, run the following command:
    ```bash
    python main.py --config p06 --stage 1

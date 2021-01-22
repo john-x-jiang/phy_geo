@@ -165,6 +165,9 @@ class ReverseGRU(nn.Module):
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
         
+        self.gde_layer = GDE_func(self.hidden_dim, self.hidden_dim, dim=3, kernel_size=3, norm=False)
+        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=False)
+
         self.gru_layer = GCGRUCell(
             input_dim=self.input_dim,
             hidden_dim=self.hidden_dim,
@@ -189,6 +192,10 @@ class ReverseGRU(nn.Module):
         edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         for t in reversed(range(T)):
+            last_h = last_h.view(N, V, -1)
+            last_h = self.gde_solver(last_h, edge_index, edge_attr, 1, steps=1)
+            last_h = last_h.view(N * V, -1)
+
             h = self.gru_layer(
                     x=x[t, :, :],
                     hidden=last_h,
@@ -229,12 +236,18 @@ class GDE_func(nn.Module):
                                 bias=bias,
                                 sample_rate=sample_rate)
         
-        def forward(self, x_g):
-            (x, edge_index, edge_attr) = x_g
-            x = F.elu(self.g1(x, edge_index, edge_attr))
-            x = F.elu(self.g2(x, edge_index, edge_attr))
+        self.edge_index = None
+        self.edge_attr = None
+        
+    def update_graph(self, edge_index, edge_attr):
+        self.edge_index = edge_index
+        self.edge_attr = edge_attr
 
-            return x
+    def forward(self, t, x):
+        x = F.elu(self.g1(x, self.edge_index, self.edge_attr))
+        x = F.elu(self.g2(x, self.edge_index, self.edge_attr))
+
+        return x
 
 
 class GDE_block(nn.Module):
@@ -246,12 +259,18 @@ class GDE_block(nn.Module):
         self.atol = atol
         self.rtol = rtol
 
-    def forward(self, x, T):
-        # self.integration_time = torch.Tensor([0, T]).float().to(device)
-        int_time = np.linspace(0, T, num=T)
-        self.integration_time = torch.Tensor(int_time).to(device)
-        import ipdb; ipdb.set_trace()
-        # TODO: Not implemented error
+    def forward(self, x, edge_index, edge_attr, T, steps=1):
+        if steps == 1:
+            self.integration_time = torch.Tensor([0, 1]).float().to(device)
+        else:
+            self.integration_time = torch.linspace(0, T-1, steps=T).to(device)
+
+        N, V, C = x.shape
+        edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
+        self.odefunc.update_graph(edge_index, edge_attr)
+
+        x = x.contiguous()
+        x = x.view(N * V, C)
 
         if self.adjoint:
             x = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
@@ -259,7 +278,12 @@ class GDE_block(nn.Module):
         else:
             x = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
                                      rtol=self.rtol, atol=self.atol, method=self.method)
-        
+
+        if steps == 1:
+            x = x[-1, :, :]
+        else:
+            x = x.view(T, N, V, C)
+            x = x.permute(1, 3, 2, 0).contiguous()
         return x
 
 

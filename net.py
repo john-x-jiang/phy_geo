@@ -229,30 +229,28 @@ class GraphPhys(nn.Module):
     def __init__(self, hparams):
         super().__init__()
         self.nf = hparams.nf
-        self.ns = hparams.ns
         self.batch_size = hparams.batch_size
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
-        self.latent_seq = hparams.latent_seq
 
-        self.conv1 = gcn(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv2 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv3 = gcn(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv1 = gcn(self.nf[0], self.nf[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = gcn(self.nf[1], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
 
-        self.fce1 = nn.Conv2d(self.nf[4], self.nf[-1], 1)
-        self.fce2 = nn.Conv2d(self.nf[-1], self.latent_dim, 1)
+        self.fce1 = nn.Conv2d(self.nf[3], self.nf[4], 1)
+        self.fce2 = nn.Conv2d(self.nf[4], self.latent_dim, 1)
 
         self.gru = ReverseGRU(input_dim=self.latent_dim, hidden_dim=self.latent_dim * 2, kernel_size=3, dim=3, norm=False)
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
         self.gde_layer = GDE_func(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False)
-        self.gde_solver = GDE_block(self.gde_layer, method='euler', adjoint=False)
+        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=False)
 
-        self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[-1], 1)
-        self.fcd4 = nn.Conv2d(self.nf[-1], self.nf[5], 1)
+        self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
+        self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
 
-        self.deconv4 = gcn(self.nf[5], self.nf[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv4 = gcn(self.nf[4], self.nf[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
         self.deconv3 = gcn(self.nf[3], self.nf[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
         self.deconv2 = gcn(self.nf[2], self.nf[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
         self.deconv1 = gcn(self.nf[1], self.nf[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
@@ -328,27 +326,27 @@ class GraphPhys(nn.Module):
         x, edge_index, edge_attr = \
             data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
         x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
-        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[1] * self.seq_len)
         x = torch.matmul(self.t_P01[heart_name], x)  # bs X 648 X f[1]
         
         # layer 2
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[1], self.seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
         x = self.conv2(x, edge_index, edge_attr)  # 648*bs X f[2]
-        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
         x = torch.matmul(self.t_P12[heart_name], x)  # bs X 347 X f[2]
         
         # layer 3
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
         x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
-        x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
         x = torch.matmul(self.t_P23[heart_name], x)  # bs X 184 X f[3]
         # x = x.view(self.batch_size, -1, self.nf[4], self.seq_len)
 
         # latent
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
         x = F.elu(self.fce2(x), inplace=True)
@@ -389,17 +387,16 @@ class GraphPhys(nn.Module):
         """ graph  convolutional decoder
         """
         edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-        import ipdb; ipdb.set_trace()
-        x = self.gde_solver((x, edge_index, edge_attr), self.seq_len)
+        x = self.gde_solver(x, edge_index, edge_attr, self.seq_len, steps=self.seq_len)
 
         x = F.elu(self.fcd3(x), inplace=True)
         x = F.elu(self.fcd4(x), inplace=True)
         x = x.permute(0, 2, 1, 3).contiguous()
 
-        x = x.view(self.batch_size, -1, self.nf[5] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
         x = torch.matmul(self.P43[heart_name], x)  # bs X 184 X f[4]
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[5], self.seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
         x = self.deconv4(x, edge_index, edge_attr)  # (bs*184) X f[3]
 
         x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
@@ -438,7 +435,7 @@ class GraphPhys(nn.Module):
         z = self.inverse(mu, heart_name)
         phi_h = self.decode(z, heart_name)
         phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
-        return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
+        return phi_h, phi_t_, None, l_h, mu, logvar
 
 
 def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, smooth, *args):
@@ -449,15 +446,15 @@ def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, sm
     epoch = args[2]
     anneal = args[3]
 
-    # if anneal:
-    #     if epoch < 50:
-    #         anneal_param = 0
-    #     elif epoch < 500:
-    #         anneal_param = epoch / 500
-    #     else:
-    #         anneal_param = 1
-    # else:
-    #     anneal_param = 1
+    if anneal:
+        if epoch < 30:
+            step_param = 0
+        elif epoch < 300:
+            step_param = epoch / 300
+        else:
+            step_param = 1
+    else:
+        step_param = 0
 
     if phy_mode == 0:
         r1, r2 = 1, 0
@@ -481,7 +478,7 @@ def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, sm
     # PHY = PHY / shape2
     # SMOOTH = SMOOTH / shape1
 
-    TOTAL = r1 * BCE + KLD + r2 * PHY + smooth * SMOOTH
+    TOTAL = r1 * BCE + step_param * KLD + r2 * PHY + smooth * SMOOTH
 
     return TOTAL, BCE, KLD, PHY, SMOOTH
 

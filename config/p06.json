@@ -1,31 +1,23 @@
 {
     "model_type": "physics",
     "model_name": "p06",
-    "learning_rate": 5e-4,
-    "batch_size": 1,
-    "num_epochs": 300,
-    "latent_dim": 30,
-    "latent_seq": 20,
+    "learning_rate": 1e-4,
+    "batch_size": 8,
+    "num_epochs": 500,
+    "latent_dim": 64,
     "seq_len": 101,
     "nf": [
         1,
+        8,
         16,
         32,
         64,
         128,
-        256,
-        1024
-    ],
-    "ns": [
-        101,
-        80,
-        60,
-        40,
-        20
+        256
     ],
     "makegraph": 0,
     "heart_torso": 1,
-    "anneal": 0,
+    "anneal": 1,
     "device": 0,
     "sample": 1,
     "subset": 1,
