@@ -81,8 +81,12 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     # initialize the model
     if hparams.net_arch == 'phy':
         model = net.GraphTorsoHeart(hparams)
-    elif hparams.net_arch == 'phyode':
-        model = net.GraphPhys(hparams)
+    elif hparams.net_arch == 'latent_ode':
+        model = net.Graph_LODE(hparams)
+    elif hparams.net_arch == 'ode_rnn':
+        model = net.Graph_ODE_RNN(hparams)
+    else:
+        raise NotImplementedError('The architecture {} is not implemented'.format(hparams.net_arch))
     
     for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)

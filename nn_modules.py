@@ -167,8 +167,8 @@ class ReverseGRU(nn.Module):
 
         self.init_layer = Init(self.hidden_dim, 2 * self.hidden_dim)
         
-        self.gde_layer = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
-        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=True)
+        self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
+        self.gde_solver = GDE_block(self.odefunc, method='rk4', adjoint=True)
 
         self.gru_layer = GCGRUCell(
             input_dim=self.input_dim,
@@ -194,7 +194,7 @@ class ReverseGRU(nn.Module):
 
         for t in reversed(range(T)):
             last_h = last_h.view(N, V, -1)
-            last_h = self.gde_solver(last_h, edge_index, edge_attr, 1, steps=1)
+            last_h = self.gde_solver(last_h, 1, steps=1)
             last_h = last_h.view(N * V, -1)
 
             h = self.gru_layer(
@@ -207,9 +207,9 @@ class ReverseGRU(nn.Module):
         
         return last_h
     
-    def __init_hidden(self, graph_size):
-        init_states = self.gru_layer.init_hidden(graph_size)
-        return init_states
+    # def __init_hidden(self, graph_size):
+    #     init_states = self.gru_layer.init_hidden(graph_size)
+    #     return init_states
 
 
 class Init(nn.Module):
@@ -297,14 +297,16 @@ class GDE_block(nn.Module):
         self.atol = atol
         self.rtol = rtol
 
-    def forward(self, x, edge_index, edge_attr, T, steps=1):
+    def forward(self, x, T, steps=1):
         if steps == 1:
             self.integration_time = torch.Tensor([0, 1]).float().to(device)
         else:
             self.integration_time = torch.linspace(0, T-1, steps=T).to(device)
 
+        if type(x) == tuple:
+            (x, edge_index, edge_attr) = x
         N, V, C = x.shape
-        edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
+        # edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
         # self.odefunc.update_graph(edge_index, edge_attr)
 
         x = x.contiguous()
@@ -322,6 +324,62 @@ class GDE_block(nn.Module):
             x = x.view(T, N, V, C)
             x = x.permute(1, 3, 2, 0).contiguous()
         return x
+
+
+class ODERNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
+                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.sample_rate = sample_rate
+
+        self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
+        self.gde_solver = GDE_block(self.odefunc, method='rk4', adjoint=True)
+
+        self.gru_layer = GCGRUCell(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            kernel_size=self.kernel_size,
+            dim=dim,
+            is_open_spline=is_open_spline,
+            degree=degree,
+            norm=norm,
+            root_weight=root_weight,
+            bias=bias,
+            sample_rate=self.sample_rate
+        )
+
+    def forward(self, x, edge_index, edge_attr):
+        output = []
+
+        x = x.permute(3, 0, 1, 2).contiguous()
+        T, N, V, C = x.shape
+        edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
+
+        last_h = x[0]
+        output.append(last_h.view(1, N, V, C))
+        x = x.view(T, N * V, C)
+
+        for t in range(1, T):
+            last_h = last_h.view(N, V, -1)
+            last_h = self.gde_solver(last_h, 1, steps=1)
+            last_h = last_h.view(N * V, -1)
+
+            h = self.gru_layer(
+                x=x[t, :, :],
+                hidden=last_h,
+                edge_index=edge_index,
+                edge_attr=edge_attr
+            )
+            last_h = h
+
+            output.append(h.view(1, N, V, C))
+
+        output = torch.cat(output, dim=0)
+        output = output.permute(1, 2, 3, 0).contiguous()
+        return output
 
 
 class st_gcn(nn.Module):

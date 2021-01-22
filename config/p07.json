@@ -1,7 +1,7 @@
 {
     "model_type": "physics",
-    "model_name": "p06",
-    "net_arch": "latent_ode",
+    "model_name": "p07",
+    "net_arch": "ode_rnn",
     "learning_rate": 5e-4,
     "batch_size": 8,
     "num_epochs": 500,
