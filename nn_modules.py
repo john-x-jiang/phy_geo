@@ -29,8 +29,9 @@ class gcn(nn.Module):
         self.out_channels = out_channels
         self.sample_rate = sample_rate
 
-        self.glayer = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0], norm=False)
-        
+        self.glayer = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim,
+                                   kernel_size=kernel_size[0], norm=False)
+
         self.residual = nn.Sequential(
             nn.Conv2d(
                 in_channels,
@@ -80,78 +81,79 @@ class GCGRUCell(nn.Module):
         self.sample_rate = sample_rate
 
         self.xr = SplineSample(in_channels=self.input_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-        
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
         self.hr = SplineSample(in_channels=self.hidden_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-        
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
         self.xz = SplineSample(in_channels=self.input_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-        
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
         self.hz = SplineSample(in_channels=self.hidden_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-        
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
         self.xn = SplineSample(in_channels=self.input_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-        
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
         self.hn = SplineSample(in_channels=self.hidden_dim,
-                                out_channels=self.hidden_dim,
-                                dim=dim,
-                                kernel_size=self.kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=self.sample_rate)
-    
+                               out_channels=self.hidden_dim,
+                               dim=dim,
+                               kernel_size=self.kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=self.sample_rate)
+
     def forward(self, x, hidden, edge_index, edge_attr):
+        # print("GRU shapes: x {} hidden {}".format(x.shape, hidden.shape))
         r = torch.sigmoid(self.xr(x, edge_index, edge_attr) + self.hr(hidden, edge_index, edge_attr))
         z = torch.sigmoid(self.xz(x, edge_index, edge_attr) + self.hz(hidden, edge_index, edge_attr))
         n = torch.tanh(self.xn(x, edge_index, edge_attr) + r * self.hr(hidden, edge_index, edge_attr))
         h_new = (1 - z) * n + z * hidden
         return h_new
-    
+
     def init_hidden(self, graph_size):
         return torch.zeros(graph_size, self.hidden_dim, device=device)
 
@@ -164,7 +166,7 @@ class ReverseGRU(nn.Module):
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
-        
+
         self.gru_layer = GCGRUCell(
             input_dim=self.input_dim,
             hidden_dim=self.hidden_dim,
@@ -177,7 +179,7 @@ class ReverseGRU(nn.Module):
             bias=bias,
             sample_rate=self.sample_rate
         )
-    
+
     def forward(self, x, edge_index, edge_attr):
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.size()
@@ -189,16 +191,15 @@ class ReverseGRU(nn.Module):
         edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         for t in reversed(range(T)):
-            h = self.gru_layer(
-                    x=x[t, :, :],
-                    hidden=last_h,
-                    edge_index=edge_index,
-                    edge_attr=edge_attr
-                )
-            last_h = h
-        
+            # Solve GDE forward from t-1 to get the hidden state at t
+            hidden_ = self.gdesolver((last_h, edge_index, edge_attr), torch.Tensor([t]))
+
+            # Apply GRU layer onto the solved hidden state
+            hidden = self.gru_layer(x=x[t, :, :], hidden=hidden_, edge_index=edge_index, edge_attr=edge_attr)
+            last_h = hidden
+
         return last_h
-    
+
     def __init_hidden(self, graph_size):
         init_states = self.gru_layer.init_hidden(graph_size)
         return init_states
@@ -209,32 +210,38 @@ class GDE_func(nn.Module):
                  degree=1, norm=True, root_weight=True, bias=True, sample_rate=None):
         super().__init__()
         self.g1 = SplineSample(in_channels=in_channels,
-                                out_channels=out_channels,
-                                dim=dim,
-                                kernel_size=kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=sample_rate)
+                               out_channels=out_channels,
+                               dim=dim,
+                               kernel_size=kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=sample_rate)
         self.g2 = SplineSample(in_channels=in_channels,
-                                out_channels=out_channels,
-                                dim=dim,
-                                kernel_size=kernel_size,
-                                is_open_spline=is_open_spline,
-                                degree=degree,
-                                norm=norm,
-                                root_weight=root_weight,
-                                bias=bias,
-                                sample_rate=sample_rate)
-        
-        def forward(self, x_g):
-            (x, edge_index, edge_attr) = x_g
-            x = F.elu(self.g1(x, edge_index, edge_attr))
-            x = F.elu(self.g2(x, edge_index, edge_attr))
+                               out_channels=out_channels,
+                               dim=dim,
+                               kernel_size=kernel_size,
+                               is_open_spline=is_open_spline,
+                               degree=degree,
+                               norm=norm,
+                               root_weight=root_weight,
+                               bias=bias,
+                               sample_rate=sample_rate)
 
-            return x
+        self.edge_index = None
+        self.edge_attr = None
+
+    def update_graph(self, edge_index, edge_attr):
+        self.edge_index = edge_index
+        self.edge_attr = edge_attr
+
+    def forward(self, t, x):
+        # print("Inside ODE Function: ", x.shape)
+        x = torch.tanh(self.g1(x, self.edge_index, self.edge_attr))
+        x = torch.tanh(self.g2(x, self.edge_index, self.edge_attr))
+        return x
 
 
 class GDE_block(nn.Module):
@@ -248,18 +255,17 @@ class GDE_block(nn.Module):
 
     def forward(self, x, T):
         # self.integration_time = torch.Tensor([0, T]).float().to(device)
-        int_time = np.linspace(0, T, num=T)
-        self.integration_time = torch.Tensor(int_time).to(device)
-        import ipdb; ipdb.set_trace()
+        # int_time = np.linspace(0, T, num=T)
+        # self.integration_time = torch.Tensor(int_time).to(device)
+        # import ipdb
+        # ipdb.set_trace()
         # TODO: Not implemented error
 
         if self.adjoint:
-            x = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
-                                             rtol=self.rtol, atol=self.atol, method=self.method)
+            x = torchdiffeq.odeint_adjoint(self.odefunc, x, T, rtol=self.rtol, atol=self.atol, method=self.method)
         else:
-            x = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
-                                     rtol=self.rtol, atol=self.atol, method=self.method)
-        
+            x = torchdiffeq.odeint(self.odefunc, x, T, rtol=self.rtol, atol=self.atol, method=self.method)
+
         return x
 
 
@@ -285,7 +291,8 @@ class st_gcn(nn.Module):
         self.out_channels = out_channels
         self.sample_rate = sample_rate
 
-        self.gcn = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0], norm=False)
+        self.gcn = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0],
+                                norm=False)
 
         if process == 'e':
             self.tcn = nn.Sequential(
@@ -311,7 +318,7 @@ class st_gcn(nn.Module):
             )
         else:
             raise NotImplementedError
-        
+
         self.residual = nn.Sequential(
             nn.Conv2d(
                 in_channels,
@@ -348,7 +355,6 @@ def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
     num_edges = int(edge_index.shape[1] / batch_size)
     edge_index = edge_index[:, 0:num_edges]
     edge_attr = edge_attr[0:num_edges, :]
-    
 
     sample_number = int(sample_rate * num_edges) if sample_rate is not None else num_edges
     selected_edges = torch.zeros(edge_index.shape[0], batch_size * T * sample_number).to(device)
@@ -366,3 +372,102 @@ def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
 
     selected_edges = selected_edges.long()
     return selected_edges, selected_attrs
+
+
+class ODERNN(nn.Module):
+    def __init__(self,
+                 # GDE Solution
+                 odefunc, method,
+
+                 # GRU Hyperparameters
+                 gru_input_dim, gru_hidden_dim, gru_kernel_size, gru_dim,
+                 is_open_spline=True, degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
+
+                 # Hyperparameters for ODE tolerance
+                 rtol=1e-5, atol=1e-7, adjoint=True):
+
+        super().__init__()
+        self.odefunc = odefunc
+        self.method = method
+        self.adjoint = adjoint
+        self.atol = atol
+        self.rtol = rtol
+
+        # Defines the GRU layer
+        self.grucell = GCGRUCell(
+            input_dim=gru_input_dim,
+            hidden_dim=gru_hidden_dim,
+            kernel_size=gru_kernel_size,
+            dim=gru_dim,
+            is_open_spline=is_open_spline,
+            degree=degree,
+            norm=norm,
+            root_weight=root_weight,
+            bias=bias,
+            sample_rate=sample_rate
+        )
+
+        # Holds the edge index and edge attr of the current batch
+        self.edge_index = None
+        self.edge_attr = None
+
+    def set_graph(self, edge_index, edge_attr):
+        """
+        Handles setting the current static graph properties of this batch for the forward pass
+        Args:
+            edge_index:
+            edge_attr:
+
+        """
+        self.edge_index = edge_index
+        self.edge_attr = edge_attr
+
+    def forward(self, x):
+        """
+        Handles the forward pass of the ODE-RNN for the latent space
+        Args:
+            x: batch of sequenced graphs
+
+        Returns: solution of the ODE-RNN, taking into account temporal dynamics
+        """
+        # Holds the solved x
+        output = []
+
+        # Permute data such that the timestep is in the first dimension
+        x = x.permute(3, 0, 1, 2).contiguous()
+
+        # Timesteps, Nodes, Vertices, Channels
+        T, N, V, C = x.size()
+
+        # Merge batch size and vertices
+        x = x.view(T, N * V, C)
+
+        # Set the initial h to just be the initial embedding timestep
+        cur_h = x[0]
+        output.append(cur_h.view(1, N, V, C))
+
+        # Iterate over each timestep, starting from t1
+        for t in range(1, x.shape[0]):
+            # Solve GDE forward from t-1 to get the hidden state at t
+            if self.adjoint:
+                hidden_ = torchdiffeq.odeint_adjoint(self.odefunc, cur_h, torch.Tensor([0, 1]).to(device),
+                                                     rtol=self.rtol, atol=self.atol, method=self.method)[-1]
+            else:
+                hidden_ = torchdiffeq.odeint(self.odefunc, cur_h, torch.Tensor([0, 1]),
+                                             rtol=self.rtol, atol=self.atol, method=self.method)[-1]
+
+            # Pass hidden state and observation into GRUCell
+            # print("Observation shape: {}, Hidden shape: {}".format(x[t].shape, hidden_.shape))
+            hidden = self.grucell(x[t], hidden_, self.edge_index, self.edge_attr)
+            cur_h = hidden
+
+            # Append viewed hidden state
+            output.append(hidden.view(1, N, V, C))
+
+        # Combine the output together and permute sequence dimension back to the 4th dimension
+        output = torch.cat(output, dim=0)
+        # print("Output shape: ", output.shape)
+
+        output = output.permute(1, 2, 3, 0).contiguous()
+        # print("Permute Output shape: ", output.shape)
+        return output

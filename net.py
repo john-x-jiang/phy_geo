@@ -76,6 +76,9 @@ class GraphTorsoHeart(nn.Module):
         self.t_L = dict()
         self.H = dict()
 
+        # Holds the previous latent state to solve the ODE through
+        self.prev_z = None
+
     def set_graphs(self, gParams, heart_name):
         self.bg[heart_name] = gParams["bg"]
         self.bg1[heart_name] = gParams["bg1"]
@@ -110,25 +113,35 @@ class GraphTorsoHeart(nn.Module):
         self.H[heart_name] = H
     
     def encode(self, data, heart_name):
-        """ graph convolutional encoder
+        """
+        graph convolutional encoder
         """
         # layer 1 (graph setup, conv, nonlinear, pool)
         x, edge_index, edge_attr = \
-            data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
+            data.view(self.batch_size, -1, self.nf[0], self.seq_len), \
+            self.tg[heart_name].edge_index, \
+            self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
+
         x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
         x = x.view(self.batch_size, -1, self.nf[2] * self.ns[2])
         x = torch.matmul(self.t_P01[heart_name], x)  # bs X 648 X f[1]
         
         # layer 2
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.ns[2]), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[2], self.ns[2]), \
+            self.tg1[heart_name].edge_index, \
+            self.tg1[heart_name].edge_attr
+
         x = self.conv2(x, edge_index, edge_attr)  # 648*bs X f[2]
         x = x.view(self.batch_size, -1, self.nf[3] * self.ns[3])
         x = torch.matmul(self.t_P12[heart_name], x)  # bs X 347 X f[2]
         
         # layer 3
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.ns[3]), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[3], self.ns[3]), \
+            self.tg2[heart_name].edge_index, \
+            self.tg2[heart_name].edge_attr
+
         x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
         x = x.view(self.batch_size, -1, self.nf[4] * self.ns[4])
         x = torch.matmul(self.t_P23[heart_name], x)  # bs X 184 X f[3]
@@ -137,9 +150,17 @@ class GraphTorsoHeart(nn.Module):
         # latent
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
+        print(x)
 
         mu = self.fce21(x)
         # logvar = self.fce22(x)
+
+        # Split up encoded block into separate graphs
+
+        # Solve ODE between each observation and apply RNNCell to get latent output at that step
+
+        # Concatenate back together for decoding step
+
         return mu
     
     # def reparameterize(self, mu, logvar):
@@ -242,12 +263,15 @@ class GraphPhys(nn.Module):
         self.fce1 = nn.Conv2d(self.nf[4], self.nf[-1], 1)
         self.fce2 = nn.Conv2d(self.nf[-1], self.latent_dim, 1)
 
-        self.gru = ReverseGRU(input_dim=self.latent_dim, hidden_dim=self.latent_dim * 2, kernel_size=3, dim=3, norm=False)
+        self.gru = ReverseGRU(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False)
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
         self.gde_layer = GDE_func(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False)
-        self.gde_solver = GDE_block(self.gde_layer, method='euler', adjoint=False)
+        # self.gde_solver = GDE_block(self.gde_layer, method='euler', adjoint=False)
+
+        self.odernn = ODERNN(self.gde_layer, 'rk4', gru_input_dim=self.latent_dim, gru_hidden_dim=self.latent_dim,
+                             gru_dim=3, gru_kernel_size=3)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[-1], 1)
         self.fcd4 = nn.Conv2d(self.nf[-1], self.nf[5], 1)
@@ -351,14 +375,23 @@ class GraphPhys(nn.Module):
             x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
-        x = F.elu(self.fce2(x), inplace=True)
+        x = torch.tanh(self.fce2(x))
 
         x = x.permute(0, 2, 1, 3).contiguous()
-        x = self.gru(x, edge_index, edge_attr)
-        x = x.view(self.batch_size, -1, 2 * self.latent_dim)
-        mu = x[:, :, :self.latent_dim]
-        logvar = x[:, :, self.latent_dim:]
-        return mu, logvar
+        # x = self.gru(x, edge_index, edge_attr)
+        # x = x.view(self.batch_size, -1, 2 * self.latent_dim)
+
+        # Set graph of ODERNN before pass
+        self.odernn.set_graph(edge_index, edge_attr)
+        self.gde_layer.update_graph(edge_index, edge_attr)
+
+        # Perform the ODE-RNN here on the latent space
+        x = self.odernn(x)
+        # print("ODERNN output shape: ", x.shape)
+
+        # mu = x[:, :, :self.latent_dim]
+        # logvar = x[:, :, self.latent_dim:]
+        return x
     
     def reparameterize(self, mu, logvar):
         """ reparameterization; draw a random sample from the p(z|x)
@@ -373,25 +406,28 @@ class GraphPhys(nn.Module):
         num_heart = self.P43[heart_name].shape[1]
         num_torso = self.t_P23[heart_name].shape[0]
         
-        x_bin = torch.zeros(self.batch_size, num_heart, self.latent_dim).to(device)
+        x_bin = torch.zeros(self.batch_size, num_heart, self.latent_dim, self.seq_len).to(device)
         x_bin = torch.cat((x_bin, x), 1)
-        
+
+        x_bin = x_bin.permute(3, 0, 1, 2).contiguous()
         x_bin = x_bin.view(-1, self.latent_dim)
-        edge_index, edge_attr = expand(self.batch_size, num_heart + num_torso, 1, edge_index, edge_attr)
+        edge_index, edge_attr = expand(self.batch_size, num_heart + num_torso, self.seq_len, edge_index, edge_attr)
 
         x_bin = self.trans(x_bin, edge_index, edge_attr)
-        x_bin = x_bin.view(self.batch_size, -1, self.latent_dim)
-        
-        x_bin = x_bin[:, 0:-num_torso, :]
+        x_bin = x_bin.view(self.seq_len, self.batch_size, -1, self.latent_dim)
+        x_bin = x_bin.permute(1, 2, 3, 0).contiguous()
+
+        x_bin = x_bin[:, 0:-num_torso, :, :]
+        # x_bin = x_bin.permute(0, 2, 1, 3).contiguous()
         return x_bin
     
     def decode(self, x, heart_name):
         """ graph  convolutional decoder
         """
-        edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-        import ipdb; ipdb.set_trace()
-        x = self.gde_solver((x, edge_index, edge_attr), self.seq_len)
+        # print("Decoder shape: ", x.shape)
 
+        edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
+        x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fcd3(x), inplace=True)
         x = F.elu(self.fcd4(x), inplace=True)
         x = x.permute(0, 2, 1, 3).contiguous()
@@ -433,8 +469,8 @@ class GraphPhys(nn.Module):
         return phi_t_, l_h, None
     
     def forward(self, phi_t, heart_name):
-        mu, logvar = self.encode(phi_t, heart_name)
-        z = self.reparameterize(mu, logvar)
+        mu = self.encode(phi_t, heart_name)
+        # z = self.reparameterize(mu, logvar)
         z = self.inverse(mu, heart_name)
         phi_h = self.decode(z, heart_name)
         phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)

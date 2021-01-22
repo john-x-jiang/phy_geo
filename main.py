@@ -28,7 +28,7 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--config', type=str, default='params', help='config filename')
+    parser.add_argument('--config', type=str, default='p06', help='config filename')
     parser.add_argument('--seed', type=int, default=123, help='random seed')
     parser.add_argument('--logging', type=bool, default=True, help='logging')
     parser.add_argument('--stage', type=int, default=1, help='1.VAE, 2.BO, 12.VAE_BO, 3.Eval VAE')
@@ -75,8 +75,8 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     num_meshfrees = hparams.num_meshfree
     structures = hparams.structures
     sample = hparams.sample if training else 1
-    # subset = hparams.subset if training else 1
-    subset = 1
+    subset = hparams.subset if training else 1
+    # subset = 1
 
     # initialize the model
     # model = net.GraphTorsoHeart(hparams)
