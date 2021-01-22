@@ -75,12 +75,14 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     num_meshfrees = hparams.num_meshfree
     structures = hparams.structures
     sample = hparams.sample if training else 1
-    # subset = hparams.subset if training else 1
-    subset = 1
+    subset = hparams.subset if training else 1
+    # subset = 1
 
     # initialize the model
-    # model = net.GraphTorsoHeart(hparams)
-    model = net.GraphPhys(hparams)
+    if hparams.net_arch == 'phy':
+        model = net.GraphTorsoHeart(hparams)
+    elif hparams.net_arch == 'phyode':
+        model = net.GraphPhys(hparams)
     
     for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)

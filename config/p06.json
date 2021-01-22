@@ -1,8 +1,9 @@
 {
     "model_type": "physics",
     "model_name": "p06",
-    "learning_rate": 1e-4,
-    "batch_size": 8,
+    "net_arch": "phyode",
+    "learning_rate": 5e-4,
+    "batch_size": 16,
     "num_epochs": 300,
     "latent_dim": 64,
     "seq_len": 101,

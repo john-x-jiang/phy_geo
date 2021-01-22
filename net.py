@@ -233,19 +233,19 @@ class GraphPhys(nn.Module):
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
 
-        self.conv1 = gcn(self.nf[0], self.nf[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv2 = gcn(self.nf[1], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv3 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv1 = gcn(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = gcn(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
 
-        self.fce1 = nn.Conv2d(self.nf[3], self.nf[4], 1)
-        self.fce2 = nn.Conv2d(self.nf[4], self.latent_dim, 1)
-
-        self.gru = ReverseGRU(input_dim=self.latent_dim, hidden_dim=self.latent_dim * 2, kernel_size=3, dim=3, norm=False)
+        self.fce1 = nn.Conv2d(self.nf[4], self.nf[5], 1)
+        self.gru = ReverseGRU(input_dim=self.nf[5], hidden_dim=self.nf[5], kernel_size=3, dim=3, norm=False)
+        self.fce21 = nn.Conv1d(self.nf[5], self.latent_dim, 1)
+        self.fce22 = nn.Conv1d(self.nf[5], self.latent_dim, 1)
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.gde_layer = GDE_func(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False)
-        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=False)
+        self.gde_layer = ODE_func_lin(self.latent_dim, 2 * self.latent_dim, num_layers=1)
+        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=True)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
@@ -326,36 +326,40 @@ class GraphPhys(nn.Module):
         x, edge_index, edge_attr = \
             data.view(self.batch_size, -1, self.nf[0], self.seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
         x = self.conv1(x, edge_index, edge_attr)  # (1230*bs) X f[1]
-        x = x.view(self.batch_size, -1, self.nf[1] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
         x = torch.matmul(self.t_P01[heart_name], x)  # bs X 648 X f[1]
         
         # layer 2
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[1], self.seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
         x = self.conv2(x, edge_index, edge_attr)  # 648*bs X f[2]
-        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
         x = torch.matmul(self.t_P12[heart_name], x)  # bs X 347 X f[2]
         
         # layer 3
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
         x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
-        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
+        x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
         x = torch.matmul(self.t_P23[heart_name], x)  # bs X 184 X f[3]
         # x = x.view(self.batch_size, -1, self.nf[4], self.seq_len)
 
         # latent
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
+            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
-        x = F.elu(self.fce2(x), inplace=True)
 
         x = x.permute(0, 2, 1, 3).contiguous()
         x = self.gru(x, edge_index, edge_attr)
-        x = x.view(self.batch_size, -1, 2 * self.latent_dim)
-        mu = x[:, :, :self.latent_dim]
-        logvar = x[:, :, self.latent_dim:]
+        x = x.view(self.batch_size, -1, self.nf[5])
+        x = x.permute(0, 2, 1).contiguous()
+
+        mu = torch.tanh(self.fce21(x))
+        logvar = torch.tanh(self.fce22(x))
+
+        mu = mu.permute(0, 2, 1).contiguous()
+        logvar = logvar.permute(0, 2, 1).contiguous()
         return mu, logvar
     
     def reparameterize(self, mu, logvar):

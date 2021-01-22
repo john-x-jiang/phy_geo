@@ -164,9 +164,11 @@ class ReverseGRU(nn.Module):
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
+
+        self.init_layer = Init(self.hidden_dim, 2 * self.hidden_dim)
         
-        self.gde_layer = GDE_func(self.hidden_dim, self.hidden_dim, dim=3, kernel_size=3, norm=False)
-        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=False)
+        self.gde_layer = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
+        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=True)
 
         self.gru_layer = GCGRUCell(
             input_dim=self.input_dim,
@@ -185,10 +187,9 @@ class ReverseGRU(nn.Module):
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.size()
 
+        last_h = self.init_layer(x[-1, :, :, :])
+
         x = x.view(T, N * V, C)
-
-        last_h = self.__init_hidden(N * V)
-
         edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         for t in reversed(range(T)):
@@ -211,7 +212,41 @@ class ReverseGRU(nn.Module):
         return init_states
 
 
-class GDE_func(nn.Module):
+class Init(nn.Module):
+    def __init__(self, in_channel, hidden_channel):
+        super().__init__()
+        self.g1 = nn.Conv1d(in_channel, hidden_channel, 1)
+        self.g2 = nn.Conv1d(hidden_channel, in_channel, 1)
+    
+    def forward(self, x):
+        x = x.permute(0, 2, 1).contiguous()
+        x = F.elu(self.g1(x))
+        x = torch.tanh(self.g2(x))
+        x = x.permute(0, 2, 1).contiguous()
+        return x
+
+
+class ODE_func_lin(nn.Module):
+    def __init__(self, in_channel, hidden_channel, num_layers=1):
+        super().__init__()
+        self.num_layers = num_layers
+        self.in_layer = nn.Conv1d(in_channel, hidden_channel, 1)
+        layers = []
+        for i in range(self.num_layers):
+            layers.append(nn.Conv1d(hidden_channel, hidden_channel, 1))
+        self.layers = nn.Sequential(*layers)
+        self.out_layer = nn.Conv1d(hidden_channel, in_channel, 1)
+    
+    def forward(self, t, x):
+        x = x.permute(0, 2, 1).contiguous()
+        x = F.elu(self.in_layer(x))
+        x = F.elu(self.layers(x))
+        x = torch.tanh(self.out_layer(x))
+        x = x.permute(0, 2, 1).contiguous()
+        return x
+
+
+class ODE_func_gcn(nn.Module):
     def __init__(self, in_channels, out_channels, dim, kernel_size, is_open_spline=True,
                  degree=1, norm=True, root_weight=True, bias=True, sample_rate=None):
         super().__init__()
@@ -235,6 +270,8 @@ class GDE_func(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=sample_rate)
+        self.g1 = nn.Conv1d(in_channels, 2 * out_channels, 1)
+        self.g2 = nn.Conv1d(2 * out_channels, out_channels, 1)
         
         self.edge_index = None
         self.edge_attr = None
@@ -244,6 +281,7 @@ class GDE_func(nn.Module):
         self.edge_attr = edge_attr
 
     def forward(self, t, x):
+        x = x.view(-1, C)
         x = F.elu(self.g1(x, self.edge_index, self.edge_attr))
         x = F.elu(self.g2(x, self.edge_index, self.edge_attr))
 
@@ -251,7 +289,7 @@ class GDE_func(nn.Module):
 
 
 class GDE_block(nn.Module):
-    def __init__(self, odefunc, method, rtol=1e-7, atol=1e-9, adjoint=True):
+    def __init__(self, odefunc, method, rtol=1e-5, atol=1e-7, adjoint=True):
         super().__init__()
         self.odefunc = odefunc
         self.method = method
@@ -267,10 +305,9 @@ class GDE_block(nn.Module):
 
         N, V, C = x.shape
         edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
-        self.odefunc.update_graph(edge_index, edge_attr)
+        # self.odefunc.update_graph(edge_index, edge_attr)
 
         x = x.contiguous()
-        x = x.view(N * V, C)
 
         if self.adjoint:
             x = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
