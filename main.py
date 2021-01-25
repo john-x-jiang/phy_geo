@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--config', type=str, default='p06', help='config filename')
     parser.add_argument('--seed', type=int, default=123, help='random seed')
     parser.add_argument('--logging', type=bool, default=True, help='logging')
-    parser.add_argument('--stage', type=int, default=1, help='1.VAE, 2.BO, 12.VAE_BO, 3.Eval VAE')
+    parser.add_argument('--stage', type=int, default=2, help='1.VAE, 2.BO, 12.VAE_BO, 3.Eval VAE')
 
     args = parser.parse_args()
     return args

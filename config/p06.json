@@ -28,7 +28,7 @@
     "anneal": 0,
     "device": 0,
     "sample": 1,
-    "subset": 0.01,
+    "subset": 1,
     "phy_mode": 1,
     "smooth": 5e-3,
     "graph_name": [
