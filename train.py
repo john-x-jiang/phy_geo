@@ -189,27 +189,29 @@ def plot_single_heart(model, x_loader, model_dir, corMfree, heart_name):
     #         f.write('Label:{}, ccs = {:05.5f}, cct = {:05.5f}\n'.format(label, cors, cort))
 
 
-def plot_zmean(model, x_loader, model_dir, corMfree, heart_name):
-    """Plot the latent codes
-    """
+def evaluation(model, x_loader, model_dir, corMfree, heart_name):
     batch_size = model.batch_size
     seq_len = model.seq_len
-    # latent_dim = model.latent_dim
     n = len(x_loader.dataset)
     n = (n - n % batch_size)
+
     heart_cor, torso_cor = corMfree
     num_meshfree = len(heart_cor)
-    # z_mu = np.empty((n, latent_dim))
-    # label = np.empty((n))
+    num_torso = len(torso_cor)
+
     all_recons = np.empty((n, num_meshfree, seq_len))
     all_inps = np.empty((n, num_meshfree, seq_len))
+    all_ys = np.empty((n, num_torso, seq_len))
+    all_label = np.zeros((n, 2)).astype(int)
     mses, corrt, corrs, ats, dcs = [], [], [], [], []
+
     model.eval()
     i = 0
     with torch.no_grad():
         for data in x_loader:
             heart_data, torso_data = data.y, data.x
-            heart_data = heart_data.to(device)
+            label = data.pos
+            label = label.view(-1, 2)
             torso_data = torso_data.to(device)
             rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
             if type(rtn) == tuple:
@@ -219,23 +221,37 @@ def plot_zmean(model, x_loader, model_dir, corMfree, heart_name):
             recon_data = recon_data.view(batch_size, -1, seq_len)
             recon_data = recon_data.detach().cpu().numpy()
             all_recons[i * batch_size:(i + 1) * batch_size, :, :] = recon_data
+
             x = heart_data.view(batch_size, -1, seq_len)
             x = x.detach().cpu().numpy()
             all_inps[i * batch_size:(i + 1) * batch_size, :, :] = x
+
+            y_ = y_.view(batch_size, -1, seq_len)
+            y_ = y_.detach().cpu().numpy()
+            all_ys[i * batch_size:(i + 1) * batch_size, :, :] = y_
+
+            label = label.detach().cpu().numpy()
+            all_label[i, :] = label
+
             mses.append(utils.calc_msse(x, recon_data))
             corrt.append(utils.calc_corr_Pot(x, recon_data))
             corrs.append(utils.calc_corr_Pot_spatial(x, recon_data))
-            ats.append(utils.calc_AT(x, recon_data))
-            dc, _, _ = utils.calc_DC(x, recon_data)
-            dcs.append(dc)
+            # ats.append(utils.calc_AT(x, recon_data))
+            # dc, _, _ = utils.calc_DC(x, recon_data)
+            # dcs.append(dc)
+
             i += 1
 
+    if not os.path.exists(model_dir + '/data'):
+        os.makedirs(model_dir + '/data')
+    scipy.io.savemat(model_dir + '/data/Tmp_{}.mat'.format(heart_name), {'U': all_recons, 'Y': all_ys, 'label': all_label})
+
     mse = utils.calc_msse(all_inps, all_recons)
-    at = utils.calc_AT(all_inps, all_recons)
+    # at = utils.calc_AT(all_inps, all_recons)
     cort = utils.calc_corr_Pot(all_inps, all_recons)
     cors = utils.calc_corr_Pot_spatial(all_inps, all_recons)
-    dc, _, _ = utils.calc_DC(all_inps, all_recons)
-    logs = 'Heart name: {}, mse: {:05.5f}, at: {:05.5f}, cort: {:05.5f}, cors: {:05.5f}, dc: {:05.5f}'.format(heart_name, mse, at, cort, cors, dc)
+    # dc, _, _ = utils.calc_DC(all_inps, all_recons)
+    logs = 'Heart name: {}, mse: {:05.5f}, cort: {:05.5f}, cors: {:05.5f}'.format(heart_name, mse, cort, cors)
     print(logs)
     with open(os.path.join(model_dir, 'metric.txt'), 'a+') as f:
         f.write(logs + '\n')
@@ -243,8 +259,8 @@ def plot_zmean(model, x_loader, model_dir, corMfree, heart_name):
     mses = np.array(mses)
     cort = np.array(corrt)
     cors = np.array(corrs)
-    atts = np.array(ats)
-    dcos = np.array(dcs)
+    # atts = np.array(ats)
+    # dcos = np.array(dcs)
 
     mse_mean = mses.mean()
     mse_std = mses.std()
@@ -252,13 +268,13 @@ def plot_zmean(model, x_loader, model_dir, corMfree, heart_name):
     cort_std = cort.std()
     cors_mean = cors.mean()
     cors_std = cors.std()
-    at_mean = atts.mean()
-    at_std = atts.std()
-    dc_mean = dcos.mean()
-    dc_std = dcos.std()
+    # at_mean = atts.mean()
+    # at_std = atts.std()
+    # dc_mean = dcos.mean()
+    # dc_std = dcos.std()
 
-    mean_stack = np.vstack((mse_mean, cort_mean, cors_mean, at_mean, dc_mean))
-    std_stack = np.vstack((mse_std, cort_std, cors_std, at_std, dc_std))
+    mean_stack = np.vstack((mse_mean, cort_mean, cors_mean))
+    std_stack = np.vstack((mse_std, cort_std, cors_std))
 
     if not os.path.exists(model_dir + '/npys'):
         os.makedirs(model_dir + '/npys')
@@ -452,48 +468,7 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
 def get_network_paramcount(model):
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     num_params = sum([np.prod(p.size()) for p in model_parameters])
-    return num_params
-
-
-def get_mat(model, test_loader, model_dir, corMfree, heart_name):
-    batch_size = model.batch_size
-    seq_len = model.seq_len
-    n = len(test_loader.dataset)
-    n = (n - n % batch_size)
-    heart_cor, torso_cor = corMfree
-    num_meshfree = len(heart_cor)
-    num_torso = len(torso_cor)
-    all_recons = np.empty((n, num_meshfree, seq_len))
-    all_ys = np.empty((n, num_torso, seq_len))
-    all_label = np.zeros((n, 2)).astype(int)
-    model.eval()
-    i = 0
-    with torch.no_grad():
-        for data in test_loader:
-            heart_data, torso_data = data.y, data.x
-            label = data.pos
-            label = label.view(-1, 2)
-            torso_data = torso_data.to(device)
-            rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
-            if type(rtn) == tuple:
-                recon_data, recon_data_var = rtn
-            else:
-                recon_data = rtn
-            recon_data = recon_data.view(batch_size, -1, seq_len)
-            recon_data = recon_data.detach().cpu().numpy()
-            all_recons[i * batch_size:(i + 1) * batch_size, :, :] = recon_data
-
-            y_ = y_.view(batch_size, -1, seq_len)
-            y_ = y_.detach().cpu().numpy()
-            all_ys[i * batch_size:(i + 1) * batch_size, :, :] = y_
-
-            label = label.detach().cpu().numpy()
-            all_label[i, :] = label
-            i += 1
-
-    if not os.path.exists(model_dir + '/data'):
-        os.makedirs(model_dir + '/data')
-    scipy.io.savemat(model_dir + '/data/Tmp_{}.mat'.format(heart_name), {'U': all_recons, 'Y': all_ys, 'label': all_label})
+    return num_paramså
 
     
 def eval_vae(model, test_loaders, model_dir, 
@@ -504,10 +479,7 @@ def eval_vae(model, test_loaders, model_dir,
     num_params = get_network_paramcount(model)
     print('The number of network prameters: {}\n'.format(num_params))
     for heart_name, corMfree in corMfrees.items():
-        plot_zmean(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
-        # plot_reconstructions(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
-        get_mat(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
-        # plot_single_heart(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
+        evaluation(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
 
 
 def returnScar(u, seq_len):

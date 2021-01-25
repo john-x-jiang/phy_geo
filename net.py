@@ -18,11 +18,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class GraphTorsoHeart(nn.Module):
-    def __init__(self, hparams):
+    def __init__(self, hparams, training=True):
         super().__init__()
         self.nf = hparams.nf
         self.ns = hparams.ns
-        self.batch_size = hparams.batch_size
+        self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
         self.latent_seq = hparams.latent_seq
@@ -226,10 +226,10 @@ class GraphTorsoHeart(nn.Module):
 
 
 class Graph_LODE(nn.Module):
-    def __init__(self, hparams):
+    def __init__(self, hparams, training=True):
         super().__init__()
         self.nf = hparams.nf
-        self.batch_size = hparams.batch_size
+        self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
 
@@ -445,10 +445,10 @@ class Graph_LODE(nn.Module):
 
 
 class Graph_ODE_RNN(nn.Module):
-    def __init__(self, hparams):
+    def __init__(self, hparams, training=True):
         super().__init__()
         self.nf = hparams.nf
-        self.batch_size = hparams.batch_size
+        self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
 

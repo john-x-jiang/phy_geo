@@ -41,7 +41,7 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     """Generative modeling of the HD tissue properties
     """
     vae_type = hparams.model_type
-    batch_size = hparams.batch_size
+    batch_size = hparams.batch_size if training else 1
     num_epochs = hparams.num_epochs
     seq_len = hparams.seq_len
     heart_torso = hparams.heart_torso
@@ -80,11 +80,11 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
 
     # initialize the model
     if hparams.net_arch == 'phy':
-        model = net.GraphTorsoHeart(hparams)
+        model = net.GraphTorsoHeart(hparams, training=training)
     elif hparams.net_arch == 'latent_ode':
-        model = net.Graph_LODE(hparams)
+        model = net.Graph_LODE(hparams, training=training)
     elif hparams.net_arch == 'ode_rnn':
-        model = net.Graph_ODE_RNN(hparams)
+        model = net.Graph_ODE_RNN(hparams, training=training)
     else:
         raise NotImplementedError('The architecture {} is not implemented'.format(hparams.net_arch))
     
