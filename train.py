@@ -468,7 +468,7 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
 def get_network_paramcount(model):
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     num_params = sum([np.prod(p.size()) for p in model_parameters])
-    return num_paramså
+    return num_params
 
     
 def eval_vae(model, test_loaders, model_dir, 
