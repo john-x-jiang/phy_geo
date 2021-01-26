@@ -211,18 +211,17 @@ class GraphTorsoHeart(nn.Module):
         phi_t = phi_t.view(self.batch_size, -1, self.seq_len)
         phi_h = phi_h.view(self.batch_size, -1, self.seq_len)
         # laplacian
-        # l_t = torch.matmul(self.t_L[heart_name], phi_t)
         l_h = torch.matmul(self.h_L[heart_name], phi_h)
         phi_t_ = torch.matmul(self.H[heart_name], phi_h)
-        return phi_t_, l_h, None
+        return phi_t_, l_h
     
     def forward(self, phi_t, heart_name):
         mu = self.encode(phi_t, heart_name)
         # z = self.reparameterize(mu, logvar)
         z = self.inverse(mu, heart_name)
         phi_h = self.decode(z, heart_name)
-        phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
-        return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
+        phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
+        return phi_h, phi_t_, l_h, torch.zeros_like(mu), torch.zeros_like(mu), torch.zeros_like(mu), torch.zeros_like(mu)
 
 
 class Graph_LODE(nn.Module):
@@ -430,18 +429,17 @@ class Graph_LODE(nn.Module):
         phi_t = phi_t.view(self.batch_size, -1, self.seq_len)
         phi_h = phi_h.view(self.batch_size, -1, self.seq_len)
         # laplacian
-        # l_t = torch.matmul(self.t_L[heart_name], phi_t)
         l_h = torch.matmul(self.h_L[heart_name], phi_h)
         phi_t_ = torch.matmul(self.H[heart_name], phi_h)
-        return phi_t_, l_h, None
+        return phi_t_, l_h
     
     def forward(self, phi_t, heart_name):
         mu, logvar = self.encode(phi_t, heart_name)
         z = self.reparameterize(mu, logvar)
         z = self.inverse(z, heart_name)
         phi_h = self.decode(z, heart_name)
-        phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
-        return phi_h, phi_t_, None, l_h, mu, logvar
+        phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
+        return phi_h, phi_t_, l_h, mu, logvar, torch.zeros_like(mu), torch.zeros_like(mu)
 
 
 class Graph_ODE_RNN(nn.Module):
@@ -601,8 +599,8 @@ class Graph_ODE_RNN(nn.Module):
         """ graph  convolutional decoder
         """
         edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-        x = self.ode_rnn(x, edge_index, edge_attr)
-        x = x.permute(0, 2, 1, 3).contiguous()
+        h, h_ = self.ode_rnn(x, edge_index, edge_attr)
+        x = h.permute(0, 2, 1, 3).contiguous()
 
         x = F.elu(self.fcd3(x), inplace=True)
         x = F.elu(self.fcd4(x), inplace=True)
@@ -633,26 +631,25 @@ class Graph_ODE_RNN(nn.Module):
         x = self.deconv1(x, edge_index, edge_attr)  # (bs*1230) X f[0]
 
         x = x.view(-1, self.nf[0], self.seq_len)
-        return x
+        return x, h, h_
 
     def physics(self, phi_t, phi_h, heart_name):
         phi_t = phi_t.view(self.batch_size, -1, self.seq_len)
         phi_h = phi_h.view(self.batch_size, -1, self.seq_len)
         # laplacian
-        # l_t = torch.matmul(self.t_L[heart_name], phi_t)
         l_h = torch.matmul(self.h_L[heart_name], phi_h)
         phi_t_ = torch.matmul(self.H[heart_name], phi_h)
-        return phi_t_, l_h, None
+        return phi_t_, l_h
     
     def forward(self, phi_t, heart_name):
         mu = self.encode(phi_t, heart_name)
         z = self.inverse(mu, heart_name)
-        phi_h = self.decode(z, heart_name)
-        phi_t_, l_h, _ = self.physics(phi_t, phi_h, heart_name)
-        return phi_h, phi_t_, None, l_h, torch.zeros_like(mu), torch.zeros_like(mu)
+        phi_h, h, h_ = self.decode(z, heart_name)
+        phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
+        return phi_h, phi_t_, l_h, torch.zeros_like(mu), torch.zeros_like(mu), h, h_
 
 
-def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, smooth, *args):
+def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_h, mu, logvar, h, h_, phy_mode, smooth, hidden, *args):
     """ VAE Loss: Reconstruction + KL divergence losses summed over all elements and batch
     """
     batch_size = args[0]
@@ -686,15 +683,16 @@ def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_t, l_h, mu, logvar, phy_mode, sm
     PHY = F.mse_loss(recon_y, y, reduction='sum')
     l_h = l_h.view(-1, seq_len)
     SMOOTH = F.mse_loss(l_h, torch.zeros_like(l_h), reduction='sum')
+    HID = F.mse_loss(h, h_, reduction='sum')
 
     # BCE = BCE / shape1
     # KLD = KLD / shape3
     # PHY = PHY / shape2
     # SMOOTH = SMOOTH / shape1
 
-    TOTAL = r1 * BCE + step_param * KLD + r2 * PHY + smooth * SMOOTH
+    TOTAL = r1 * BCE + step_param * KLD + r2 * PHY + smooth * SMOOTH + hidden * HID
 
-    return TOTAL, BCE, KLD, PHY, SMOOTH
+    return TOTAL, BCE, KLD, PHY, SMOOTH, HID
 
 
 def loss_variation(recon_x, x, mu, logvar, *args):

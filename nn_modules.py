@@ -352,20 +352,23 @@ class ODERNN(nn.Module):
         )
 
     def forward(self, x, edge_index, edge_attr):
-        output = []
+        gru_out = []
+        ode_out = []
 
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.shape
         edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         last_h = x[0]
-        output.append(last_h.view(1, N, V, C))
+        gru_out.append(last_h.view(1, N, V, C))
+        ode_out.append(last_h.view(1, N, V, C))
         x = x.view(T, N * V, C)
 
         for t in range(1, T):
             last_h = last_h.view(N, V, -1)
             last_h = self.gde_solver(last_h, 1, steps=1)
             last_h = last_h.view(N * V, -1)
+            ode_out.append(last_h.view(1, N, V, C))
 
             h = self.gru_layer(
                 x=x[t, :, :],
@@ -373,13 +376,15 @@ class ODERNN(nn.Module):
                 edge_index=edge_index,
                 edge_attr=edge_attr
             )
+
             last_h = h
+            gru_out.append(h.view(1, N, V, C))
 
-            output.append(h.view(1, N, V, C))
-
-        output = torch.cat(output, dim=0)
-        output = output.permute(1, 2, 3, 0).contiguous()
-        return output
+        gru_out = torch.cat(gru_out, dim=0)
+        ode_out = torch.cat(ode_out, dim=0)
+        gru_out = gru_out.permute(1, 2, 3, 0).contiguous()
+        ode_out = ode_out.permute(1, 2, 3, 0).contiguous()
+        return gru_out, ode_out
 
 
 class st_gcn(nn.Module):

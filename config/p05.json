@@ -1,7 +1,7 @@
 {
     "model_type": "physics",
     "model_name": "p05",
-    "net_arch": "phyode",
+    "net_arch": "phy",
     "learning_rate": 5e-4,
     "batch_size": 16,
     "num_epochs": 500,
@@ -32,6 +32,7 @@
     "subset": 1,
     "phy_mode": 1,
     "smooth": 5e-3,
+    "hidden": 0,
     "graph_name": [
         "z21_graclus_hier"
     ],
@@ -56,8 +57,6 @@
     "val_structures": [
         "21"
     ],
-    "niter": 60,
-    "inipts": 5,
     "vae_latest": "m_best",
     "verbose_bo":1
 }

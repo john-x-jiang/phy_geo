@@ -144,10 +144,11 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
 
         phy_mode = hparams.phy_mode
         smooth = hparams.smooth
+        hidden = hparams.hidden
         
         optimizer = optim.Adam(model.parameters(), lr=hparams.learning_rate)
         train.train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_mode, smooth,
-                        model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
+                        hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
     else:
         model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest))
         model = model.eval().to(device)

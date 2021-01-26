@@ -24,6 +24,7 @@
     "subset": 1,
     "phy_mode": 1,
     "smooth": 5e-3,
+    "hidden": 0,
     "graph_name": [
         "z21_graclus_hier"
     ],

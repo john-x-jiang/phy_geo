@@ -286,12 +286,12 @@ def evaluation(model, x_loader, model_dir, corMfree, heart_name):
     np.save(os.path.join(model_dir, 'npys/metric_{}.npy'.format(heart_name)), metric_stack)
 
 
-def train(epoch, model, loss_function, phy_mode, smooth, optimizer, train_loaders, batch_size, seq_len, model_dir, anneal, sample=1):
+def train(epoch, model, loss_function, phy_mode, smooth, hidden, optimizer, train_loaders, batch_size, seq_len, model_dir, anneal, sample=1):
     """Train a model and compute train loss
     """
     model.train()
     train_loss = 0
-    bce_loss, kld_loss, phy_loss, smt_loss = 0, 0, 0, 0
+    bce_loss, kld_loss, phy_loss, smt_loss, hid_loss = 0, 0, 0, 0, 0
     n = 0  # len(train_dataset)
     heart_names = list(train_loaders.keys())
     random.shuffle(heart_names)
@@ -304,7 +304,7 @@ def train(epoch, model, loss_function, phy_mode, smooth, optimizer, train_loader
             
             heart_data = heart_data.to(device)
             torso_data = torso_data.to(device)
-            rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+            rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
             if type(rtn) == tuple:
                 mu_theta, logvar_theta = rtn
                 logvar_theta = logvar_theta.view(-1, seq_len)
@@ -320,13 +320,14 @@ def train(epoch, model, loss_function, phy_mode, smooth, optimizer, train_loader
             if type(rtn) == tuple:
                 loss, bce, kld = loss_function(mu_theta, logvar_theta, x, mu, logvar, batch_size, seq_len, epoch, anneal)
             else:
-                loss, bce, kld, phy, smt = loss_function(mu_theta, x, y_, y, l_t, l_h, mu, logvar, phy_mode, smooth, batch_size, seq_len, epoch, anneal)
+                loss, bce, kld, phy, smt, hid = loss_function(mu_theta, x, y_, y, l_h, mu, logvar, h, h_, phy_mode, smooth, hidden, batch_size, seq_len, epoch, anneal)
             loss.backward()
             train_loss += loss.item()
             bce_loss += bce.item()
             kld_loss += kld.item()
             phy_loss += phy.item()
             smt_loss += smt.item()
+            hid_loss += hid.item()
             optimizer.step()
             n += 1
             utils.inline_print(f'Running epoch {epoch}, heart {heart_name}, batch {n}, Average loss for epoch: {str(train_loss / (n * batch_size))}')
@@ -343,15 +344,16 @@ def train(epoch, model, loss_function, phy_mode, smooth, optimizer, train_loader
     kld_loss /= (n * batch_size)
     phy_loss /= (n * batch_size)
     smt_loss /= (n * batch_size)
-    return train_loss, bce_loss, kld_loss, phy_loss, smt_loss
+    hid_loss /= (n * batch_size)
+    return train_loss, bce_loss, kld_loss, phy_loss, smt_loss, hid_loss
 
 
-def test(epoch, model, loss_function, phy_mode, smooth, test_loaders, batch_size, seq_len, anneal):
+def test(epoch, model, loss_function, phy_mode, smooth, hidden, test_loaders, batch_size, seq_len, anneal):
     """Evaluated a trained model by computing validation loss
     """
     model.eval()
     test_loss = 0
-    bce_loss, kld_loss, phy_loss, smt_loss = 0, 0, 0, 0
+    bce_loss, kld_loss, phy_loss, smt_loss, hid_loss = 0, 0, 0, 0, 0
     n = 0
     with torch.no_grad():
         for heart_name, test_loader in test_loaders.items():
@@ -361,7 +363,7 @@ def test(epoch, model, loss_function, phy_mode, smooth, test_loaders, batch_size
 
                 heart_data = heart_data.to(device)
                 torso_data = torso_data.to(device)
-                rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+                rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
                 if type(rtn) == tuple:
                     mu_theta, logvar_theta = rtn
                     logvar_theta = logvar_theta.view(-1, seq_len)
@@ -376,12 +378,13 @@ def test(epoch, model, loss_function, phy_mode, smooth, test_loaders, batch_size
                 if type(rtn) == tuple:
                     loss, bce, kld = loss_function(mu_theta, logvar_theta, x, mu, logvar, batch_size, seq_len, epoch, anneal)
                 else:
-                    loss, bce, kld, phy, smt = loss_function(mu_theta, x, y_, y, l_t, l_h, mu, logvar, phy_mode, smooth, batch_size, seq_len, epoch, anneal)
+                    loss, bce, kld, phy, smt, hid = loss_function(mu_theta, x, y_, y, l_h, mu, logvar, h, h_, phy_mode, smooth, hidden, batch_size, seq_len, epoch, anneal)
                 test_loss += loss.item()
                 bce_loss += bce.item()
                 kld_loss += kld.item()
                 phy_loss += phy.item()
                 smt_loss += smt.item()
+                hid_loss += hid.item()
                 n += 1
                 
                 if idx > int(0.1 * N / batch_size):
@@ -392,37 +395,40 @@ def test(epoch, model, loss_function, phy_mode, smooth, test_loaders, batch_size
     kld_loss /= (n * batch_size)
     phy_loss /= (n * batch_size)
     smt_loss /= (n * batch_size)
-    return test_loss, bce_loss, kld_loss, phy_loss, smt_loss
+    hid_loss /= (n * batch_size)
+    return test_loss, bce_loss, kld_loss, phy_loss, smt_loss, hid_loss
 
 
 def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_mode, smooth,
-              model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample=1):
+              hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample=1):
     """
     """
     train_a = []
-    bce_t, kld_t, phy_t, smt_t = [], [], [], []
+    bce_t, kld_t, phy_t, smt_t, hid_t = [], [], [], [], []
 
     test_a = []
-    bce_e, kld_e, phy_e, smt_e = [], [], [], []
+    bce_e, kld_e, phy_e, smt_e, hid_e = [], [], [], [], []
 
     min_err = None
     for epoch in range(1, num_epochs + 1):
         ts = time.time()
-        train_acc, bce_acc_t, kld_acc_t, phy_acc_t, smt_acc_t = \
-            train(epoch, model, loss_function, phy_mode, smooth, optimizer, train_loaders, batch_size, seq_len, model_dir, anneal, sample)
-        test_acc, bce_acc_e, kld_acc_e, phy_acc_e, smt_acc_e = \
-            test(epoch, model, loss_function, phy_mode, smooth, test_loaders, batch_size, seq_len, anneal)
+        train_acc, bce_acc_t, kld_acc_t, phy_acc_t, smt_acc_t, hid_acc_t = \
+            train(epoch, model, loss_function, phy_mode, smooth, hidden, optimizer, train_loaders, batch_size, seq_len, model_dir, anneal, sample)
+        test_acc, bce_acc_e, kld_acc_e, phy_acc_e, smt_acc_e, hid_acc_e = \
+            test(epoch, model, loss_function, phy_mode, smooth, hidden, test_loaders, batch_size, seq_len, anneal)
         te = time.time()
         train_a.append(train_acc)
         bce_t.append(bce_acc_t)
         kld_t.append(kld_acc_t)
         phy_t.append(phy_acc_t)
         smt_t.append(smt_acc_t)
+        hid_t.append(hid_acc_t)
         test_a.append(test_acc)
         bce_e.append(bce_acc_e)
         kld_e.append(kld_acc_e)
         phy_e.append(phy_acc_e)
         smt_e.append(smt_acc_e)
+        hid_e.append(hid_acc_e)
 
         if epoch == 1:
             min_err = test_acc
@@ -441,6 +447,7 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
     plot_losses(kld_t, kld_e, model_dir, num_epochs, 'kld')
     plot_losses(phy_t, phy_e, model_dir, num_epochs, 'phy')
     plot_losses(smt_t, smt_e, model_dir, num_epochs, 'smt')
+    plot_losses(hid_t, hid_e, model_dir, num_epochs, 'hid')
     train_a = np.array(train_a)
     test_a = np.array(test_a)
     bce_t = np.array(bce_t)
@@ -451,6 +458,8 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
     phy_e = np.array(phy_e)
     smt_t = np.array(smt_t)
     smt_e = np.array(smt_e)
+    hid_t = np.array(hid_t)
+    hid_e = np.array(hid_e)
     np.save(os.path.join(model_dir, 'loss_train.npy'), train_a)
     np.save(os.path.join(model_dir, 'loss_test.npy'), test_a)
     np.save(os.path.join(model_dir, 'loss_bce_t.npy'), bce_t)
@@ -461,6 +470,8 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
     np.save(os.path.join(model_dir, 'loss_phy_e.npy'), phy_e)
     np.save(os.path.join(model_dir, 'loss_smt_t.npy'), smt_t)
     np.save(os.path.join(model_dir, 'loss_smt_e.npy'), smt_e)
+    np.save(os.path.join(model_dir, 'loss_hid_t.npy'), hid_t)
+    np.save(os.path.join(model_dir, 'loss_hid_e.npy'), hid_e)
     # for heart_name, corMfree in corMfrees.items():
     #     plot_zmean(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
     #     plot_reconstructions(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
