@@ -1,5 +1,5 @@
 {
-    "model_type": "physics",
+    "model_type": "odernn",
     "model_name": "p06",
     "learning_rate": 5e-4,
     "batch_size": 4,
