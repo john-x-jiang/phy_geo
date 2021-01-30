@@ -449,6 +449,11 @@ class Graph_ODE_RNN(nn.Module):
         self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
+        self.num_layers = hparams.num_layers
+        self.method = hparams.method
+        self.rtol = hparams.rtol
+        self.atol = hparams.atol
+        self.cell_type = hparams.cell_type
 
         self.conv1 = gcn(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
         self.conv2 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
@@ -459,7 +464,7 @@ class Graph_ODE_RNN(nn.Module):
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.ode_rnn = ODERNN(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False)
+        self.ode_rnn = ODERNN(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, num_layers=self.num_layers, method=self.method, rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)

@@ -46,16 +46,16 @@
         "z21"
     ],
     "val_graph": [
-        "z21_graclus_hier"
+        "z22_graclus_hier"
     ],
     "val_heart": [
-        "z21"
+        "z22"
     ],
     "val_meshfree": [
         568
     ],
     "val_structures": [
-        "21"
+        "z22"
     ],
     "vae_latest": "m_best",
     "verbose_bo":1

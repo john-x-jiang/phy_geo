@@ -1,6 +1,6 @@
 {
     "model_type": "physics",
-    "model_name": "p07",
+    "model_name": "p12",
     "net_arch": "ode_rnn",
     "learning_rate": 5e-4,
     "batch_size": 8,
@@ -31,28 +31,28 @@
     "smooth": 5e-3,
     "hidden": 0,
     "graph_name": [
-        "z21_graclus_hier"
+        "heart_graclus_hier"
     ],
     "heart_name": [
-        "z21"
+        "heart"
     ],
     "num_meshfree": [
         568
     ],
     "structures": [
-        "z21"
+        "heart"
     ],
     "val_graph": [
-        "z22_graclus_hier"
+        "heart_graclus_hier"
     ],
     "val_heart": [
-        "z22"
+        "heart"
     ],
     "val_meshfree": [
         568
     ],
     "val_structures": [
-        "z22"
+        "heart"
     ],
     "vae_latest": "m_best",
     "verbose_bo":1

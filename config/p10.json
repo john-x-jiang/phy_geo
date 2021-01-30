@@ -1,6 +1,6 @@
 {
     "model_type": "physics",
-    "model_name": "p07",
+    "model_name": "p10",
     "net_arch": "ode_rnn",
     "learning_rate": 5e-4,
     "batch_size": 8,
@@ -29,7 +29,7 @@
     "subset": 1,
     "phy_mode": 1,
     "smooth": 5e-3,
-    "hidden": 0,
+    "hidden": 5e-3,
     "graph_name": [
         "z21_graclus_hier"
     ],

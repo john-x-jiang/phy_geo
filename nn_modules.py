@@ -61,6 +61,54 @@ class gcn(nn.Module):
         return x
 
 
+class GCRNNCell(nn.Module):
+    def __init__(self,
+                 input_dim,
+                 hidden_dim,
+                 kernel_size,
+                 dim,
+                 is_open_spline=True,
+                 degree=1,
+                 norm=True,
+                 root_weight=True,
+                 bias=True,
+                 sample_rate=None):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.sample_rate = sample_rate
+
+        self.xr = SplineSample(in_channels=self.input_dim,
+                                out_channels=self.hidden_dim,
+                                dim=dim,
+                                kernel_size=self.kernel_size,
+                                is_open_spline=is_open_spline,
+                                degree=degree,
+                                norm=norm,
+                                root_weight=root_weight,
+                                bias=bias,
+                                sample_rate=self.sample_rate)
+        
+        self.hr = SplineSample(in_channels=self.hidden_dim,
+                                out_channels=self.hidden_dim,
+                                dim=dim,
+                                kernel_size=self.kernel_size,
+                                is_open_spline=is_open_spline,
+                                degree=degree,
+                                norm=norm,
+                                root_weight=root_weight,
+                                bias=bias,
+                                sample_rate=self.sample_rate)
+    
+    def forward(self, x, hidden, edge_index, edge_attr):
+        h_new = torch.tanh(self.xr(x, edge_index, edge_attr) + self.hr(hidden, edge_index, edge_attr))
+        return h_new
+    
+    def init_hidden(self, graph_size):
+        return torch.zeros(graph_size, self.hidden_dim, device=device)
+
+
 class GCGRUCell(nn.Module):
     def __init__(self,
                  input_dim,
@@ -328,28 +376,43 @@ class GDE_block(nn.Module):
 
 class ODERNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
-                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None):
+                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
+                 num_layers=1, method='rk4', rtol=1e-5, atol=1e-7, cell_type='GRU'):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
 
-        self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
-        self.gde_solver = GDE_block(self.odefunc, method='rk4', adjoint=True)
+        self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=num_layers)
+        self.gde_solver = GDE_block(self.odefunc, method=method, rtol=rtol, atol=atol, adjoint=True)
 
-        self.gru_layer = GCGRUCell(
-            input_dim=self.input_dim,
-            hidden_dim=self.hidden_dim,
-            kernel_size=self.kernel_size,
-            dim=dim,
-            is_open_spline=is_open_spline,
-            degree=degree,
-            norm=norm,
-            root_weight=root_weight,
-            bias=bias,
-            sample_rate=self.sample_rate
-        )
+        if cell_type == 'GRU':
+            self.gru_layer = GCGRUCell(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                kernel_size=self.kernel_size,
+                dim=dim,
+                is_open_spline=is_open_spline,
+                degree=degree,
+                norm=norm,
+                root_weight=root_weight,
+                bias=bias,
+                sample_rate=self.sample_rate
+            )
+        elif cell_type == 'RNN':
+            self.gru_layer = GCRNNCell(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                kernel_size=self.kernel_size,
+                dim=dim,
+                is_open_spline=is_open_spline,
+                degree=degree,
+                norm=norm,
+                root_weight=root_weight,
+                bias=bias,
+                sample_rate=self.sample_rate
+            )
 
     def forward(self, x, edge_index, edge_attr):
         gru_out = []
