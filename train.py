@@ -46,7 +46,7 @@ def plot_reconstructions(model, x_loader, model_dir, corMfree, heart_name):
         # torso_data = utils.norm_signal(torso_data)
         heart_data = heart_data.to(device)
         torso_data = torso_data.to(device)
-        rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+        rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
         if type(rtn) == tuple:
             recon_data, recon_data_var = rtn
         else:
@@ -143,7 +143,7 @@ def plot_single_heart(model, x_loader, model_dir, corMfree, heart_name):
             #     continue
             heart_data = heart_data.to(device)
             torso_data = torso_data.to(device)
-            rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+            rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
             if type(rtn) == tuple:
                 recon_data, recon_data_var = rtn
             else:
@@ -213,7 +213,7 @@ def evaluation(model, x_loader, model_dir, corMfree, heart_name):
             label = data.pos
             label = label.view(-1, 2)
             torso_data = torso_data.to(device)
-            rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+            rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
             if type(rtn) == tuple:
                 recon_data, recon_data_var = rtn
             else:
@@ -515,7 +515,7 @@ def eval_real(model, Y, heart_name, model_dir, heart_cor):
 
     Y = torch.Tensor(Y).to(device)
     Y = Y.view(batch_size, -1, seq_len)
-    rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+    rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
     if type(rtn) == tuple:
         recon_data, recon_data_var = rtn
     else:
@@ -615,7 +615,7 @@ def eval_real_new(model, data_loaders, model_dir, corMfrees):
                 label = np.squeeze(label)
                 heart_data = heart_data.to(device) * 1e-2
                 torso_data = torso_data.to(device) * 1e-2
-                rtn, y_, l_t, l_h, mu, logvar = model(torso_data, heart_name)
+                rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
                 if type(rtn) == tuple:
                     recon_data, recon_data_var = rtn
                 else:
