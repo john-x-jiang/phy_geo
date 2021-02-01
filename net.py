@@ -244,8 +244,8 @@ class Graph_LODE(nn.Module):
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.gde_layer = ODE_func_lin(self.latent_dim, 2 * self.latent_dim, num_layers=1)
-        self.gde_solver = GDE_block(self.gde_layer, method='rk4', adjoint=True)
+        self.ode_layer = ODE_func_lin(self.latent_dim, 2 * self.latent_dim, num_layers=1)
+        self.ode_solver = ODE_block(self.ode_layer, 'conv', method='rk4', adjoint=True)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
@@ -392,7 +392,7 @@ class Graph_LODE(nn.Module):
         """ graph  convolutional decoder
         """
         # edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-        x = self.gde_solver(x, self.seq_len, steps=self.seq_len)
+        x = self.ode_solver(x, self.seq_len, steps=self.seq_len)
 
         x = F.elu(self.fcd3(x), inplace=True)
         x = F.elu(self.fcd4(x), inplace=True)
@@ -449,6 +449,7 @@ class Graph_ODE_RNN(nn.Module):
         self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
+        self.ode_func_type = hparams.ode_func_type
         self.num_layers = hparams.num_layers
         self.method = hparams.method
         self.rtol = hparams.rtol
@@ -464,7 +465,9 @@ class Graph_ODE_RNN(nn.Module):
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.ode_rnn = ODERNN(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, num_layers=self.num_layers, method=self.method, rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
+        self.ode_rnn = ODERNN(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, 
+                            ode_func_type=self.ode_func_type, num_layers=self.num_layers, method=self.method, 
+                            rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)

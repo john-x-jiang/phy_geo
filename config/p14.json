@@ -7,6 +7,7 @@
     "num_epochs": 500,
     "latent_dim": 64,
     "seq_len": 101,
+    "ode_func_type": "conv",
     "num_layers": 1,
     "method": "rk4",
     "rtol": 1e-3,

@@ -279,27 +279,32 @@ class ODE_func_lin(nn.Module):
         super().__init__()
         self.num_layers = num_layers
         self.in_layer = nn.Conv1d(in_channel, hidden_channel, 1)
-        layers = []
+        
+        self.layers = nn.ModuleList()
         for i in range(self.num_layers):
-            layers.append(nn.Conv1d(hidden_channel, hidden_channel, 1))
-        self.layers = nn.Sequential(*layers)
+            self.layers.append(nn.Conv1d(hidden_channel, hidden_channel, 1))
+        
         self.out_layer = nn.Conv1d(hidden_channel, in_channel, 1)
     
     def forward(self, t, x):
         x = x.permute(0, 2, 1).contiguous()
         x = F.elu(self.in_layer(x))
-        x = F.elu(self.layers(x))
+        
+        for layer in self.layers:
+            x = F.elu(layer(x))
+        
         x = torch.tanh(self.out_layer(x))
         x = x.permute(0, 2, 1).contiguous()
         return x
 
 
 class ODE_func_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, dim, kernel_size, is_open_spline=True,
-                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None):
+    def __init__(self, in_channels, hidden_channels, dim, kernel_size, is_open_spline=True,
+                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None, num_layers=0):
         super().__init__()
-        self.g1 = SplineSample(in_channels=in_channels,
-                                out_channels=out_channels,
+        self.num_layers = num_layers
+        self.in_layer = SplineSample(in_channels=in_channels,
+                                out_channels=hidden_channels,
                                 dim=dim,
                                 kernel_size=kernel_size,
                                 is_open_spline=is_open_spline,
@@ -308,8 +313,12 @@ class ODE_func_gcn(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=sample_rate)
-        self.g2 = SplineSample(in_channels=in_channels,
-                                out_channels=out_channels,
+        if self.num_layers != 0:
+            self.layers = nn.ModuleList()
+            for i in range(self.num_layers):
+                self.layers.append(
+                    SplineSample(in_channels=hidden_channels,
+                                out_channels=hidden_channels,
                                 dim=dim,
                                 kernel_size=kernel_size,
                                 is_open_spline=is_open_spline,
@@ -318,8 +327,18 @@ class ODE_func_gcn(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=sample_rate)
-        self.g1 = nn.Conv1d(in_channels, 2 * out_channels, 1)
-        self.g2 = nn.Conv1d(2 * out_channels, out_channels, 1)
+                )
+
+        self.out_layer = SplineSample(in_channels=hidden_channels,
+                                out_channels=in_channels,
+                                dim=dim,
+                                kernel_size=kernel_size,
+                                is_open_spline=is_open_spline,
+                                degree=degree,
+                                norm=norm,
+                                root_weight=root_weight,
+                                bias=bias,
+                                sample_rate=sample_rate)
         
         self.edge_index = None
         self.edge_attr = None
@@ -329,17 +348,105 @@ class ODE_func_gcn(nn.Module):
         self.edge_attr = edge_attr
 
     def forward(self, t, x):
-        x = x.view(-1, C)
-        x = F.elu(self.g1(x, self.edge_index, self.edge_attr))
-        x = F.elu(self.g2(x, self.edge_index, self.edge_attr))
+        N, V, C = x.shape
+        x = x.view(N * V, C)
 
+        x = F.elu(self.in_layer(x, self.edge_index, self.edge_attr))
+        if self.num_layers != 0:
+            for layer in self.layers:
+                x = F.elu(layer(x, self.edge_index, self.edge_attr))
+        x = torch.tanh(self.out_layer(x, self.edge_index, self.edge_attr))
+
+        x = x.view(N, V, C)
         return x
 
 
-class GDE_block(nn.Module):
-    def __init__(self, odefunc, method, rtol=1e-5, atol=1e-7, adjoint=True):
+class ODE_func_autoencoder(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.num_layers = len(channels) - 1
+        
+        self.encoder = nn.ModuleList()
+        for i in range(self.num_layers):
+            self.encoder.append(nn.Conv1d(channels[i], channels[i + 1], 1))
+        
+        self.decoder = nn.ModuleList()
+        for i in reversed(range(self.num_layers)):
+            self.decoder.append(nn.Conv1d(channels[i + 1], channels[i], 1))
+    
+    def forward(self, t, x):
+        x = x.permute(0, 2, 1).contiguous()
+        for layer in self.encoder:
+            x = F.elu(layer(x))
+        
+        for idx, layer in enumerate(self.decoder):
+            if idx == len(self.decoder) - 1:
+                x = torch.tanh(layer(x))
+            else:
+                x = F.elu(layer(x))
+        x = x.permute(0, 2, 1).contiguous()
+        return x
+
+
+class ODE_func_mix_autoencoder(nn.Module):
+    def __init__(self, channels, dim, kernel_size, is_open_spline=True, degree=1,
+                 norm=True, root_weight=True, bias=True, sample_rate=None):
+        super().__init__()
+        self.num_layers = len(channels)
+        
+        self.encoder = nn.ModuleList()
+        for i in range(self.num_layers - 1):
+            self.encoder.append(nn.Conv1d(channels[i], channels[i + 1], 1))
+        
+        self.decoder = nn.ModuleList()
+        for i in reversed(range(self.num_layers - 1)):
+            self.decoder.append(nn.Conv1d(channels[i + 1], channels[i], 1))
+
+        self.middle = SplineSample(
+            in_channels=channels[-1],
+            out_channels=channels[-1],
+            dim=dim,
+            kernel_size=kernel_size,
+            is_open_spline=is_open_spline,
+            degree=degree,
+            norm=norm,
+            root_weight=root_weight,
+            bias=bias,
+            sample_rate=sample_rate
+        )
+        self.edge_index = None
+        self.edge_attr = None
+        
+    def update_graph(self, edge_index, edge_attr):
+        self.edge_index = edge_index
+        self.edge_attr = edge_attr
+    
+    def forward(self, t, x):
+        N, V, C = x.shape
+        x = x.permute(0, 2, 1).contiguous()
+        for layer in self.encoder:
+            x = F.elu(layer(x))
+        
+        x = x.permute(0, 2, 1).contiguous()
+        x = x.view(N * V, -1)
+        x = F.elu(self.middle(x, self.edge_index, self.edge_attr))
+        x = x.view(N, V, -1)
+        x = x.permute(0, 2, 1).contiguous()
+        
+        for idx, layer in enumerate(self.decoder):
+            if idx == len(self.decoder) - 1:
+                x = torch.tanh(layer(x))
+            else:
+                x = F.elu(layer(x))
+        x = x.permute(0, 2, 1).contiguous()
+        return x
+
+
+class ODE_block(nn.Module):
+    def __init__(self, odefunc, ode_func_type, method, rtol=1e-5, atol=1e-7, adjoint=True):
         super().__init__()
         self.odefunc = odefunc
+        self.ode_func_type = ode_func_type
         self.method = method
         self.adjoint = adjoint
         self.atol = atol
@@ -354,8 +461,12 @@ class GDE_block(nn.Module):
         if type(x) == tuple:
             (x, edge_index, edge_attr) = x
         N, V, C = x.shape
-        # edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
-        # self.odefunc.update_graph(edge_index, edge_attr)
+
+        if self.ode_func_type in ['conv', 'autoencoder']:
+            pass
+        elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
+            edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
+            self.odefunc.update_graph(edge_index, edge_attr)
 
         x = x.contiguous()
 
@@ -377,18 +488,51 @@ class GDE_block(nn.Module):
 class ODERNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
                  degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
-                 num_layers=1, method='rk4', rtol=1e-5, atol=1e-7, cell_type='GRU'):
+                 ode_func_type='conv', num_layers=1, method='rk4', rtol=1e-5, atol=1e-7, cell_type='GRU'):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
 
-        self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=num_layers)
-        self.gde_solver = GDE_block(self.odefunc, method=method, rtol=rtol, atol=atol, adjoint=True)
+        self.ode_func_type = ode_func_type
+        if self.ode_func_type == 'conv':
+            self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=num_layers)
+        elif self.ode_func_type == 'gcn':
+            self.odefunc = ODE_func_gcn(self.hidden_dim, self.hidden_dim,
+                                         dim=dim,
+                                         kernel_size=kernel_size,
+                                         is_open_spline=is_open_spline,
+                                         degree=degree,
+                                         norm=norm,
+                                         root_weight=root_weight,
+                                         bias=bias,
+                                         sample_rate=sample_rate,
+                                         num_layers=num_layers
+                                         )
+        elif self.ode_func_type == 'autoencoder':
+            self.odefunc = ODE_func_autoencoder([self.hidden_dim, int(self.hidden_dim / 2), int(self.hidden_dim / 4), int(self.hidden_dim / 8)])
+        elif self.ode_func_type == 'mix_autoencoder':
+            self.odefunc = ODE_func_mix_autoencoder([self.hidden_dim, int(self.hidden_dim / 2), int(self.hidden_dim / 4), int(self.hidden_dim / 8)],
+                                                    dim=dim,
+                                                    kernel_size=kernel_size,
+                                                    is_open_spline=is_open_spline,
+                                                    degree=degree,
+                                                    norm=norm,
+                                                    root_weight=root_weight,
+                                                    bias=bias,
+                                                    sample_rate=sample_rate
+                                                    )
+        elif ode_func_type == 'linear':
+            print('Only apply to single graph.')
+            exit(0)
+        else:
+            raise NotImplementedError
+
+        self.ode_solver = ODE_block(self.odefunc, ode_func_type=self.ode_func_type, method=method, rtol=rtol, atol=atol, adjoint=True)
 
         if cell_type == 'GRU':
-            self.gru_layer = GCGRUCell(
+            self.rnn_layer = GCGRUCell(
                 input_dim=self.input_dim,
                 hidden_dim=self.hidden_dim,
                 kernel_size=self.kernel_size,
@@ -401,7 +545,7 @@ class ODERNN(nn.Module):
                 sample_rate=self.sample_rate
             )
         elif cell_type == 'RNN':
-            self.gru_layer = GCRNNCell(
+            self.rnn_layer = GCRNNCell(
                 input_dim=self.input_dim,
                 hidden_dim=self.hidden_dim,
                 kernel_size=self.kernel_size,
@@ -420,7 +564,7 @@ class ODERNN(nn.Module):
 
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.shape
-        edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
+        # edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         last_h = x[0]
         gru_out.append(last_h.view(1, N, V, C))
@@ -429,11 +573,16 @@ class ODERNN(nn.Module):
 
         for t in range(1, T):
             last_h = last_h.view(N, V, -1)
-            last_h = self.gde_solver(last_h, 1, steps=1)
+            
+            if self.ode_func_type in ['conv', 'autoencoder']:
+                last_h = self.ode_solver(last_h, 1, steps=1)
+            elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
+                last_h = self.ode_solver((last_h, edge_index, edge_attr), 1, steps=1)
+            
             last_h = last_h.view(N * V, -1)
             ode_out.append(last_h.view(1, N, V, C))
 
-            h = self.gru_layer(
+            h = self.rnn_layer(
                 x=x[t, :, :],
                 hidden=last_h,
                 edge_index=edge_index,
