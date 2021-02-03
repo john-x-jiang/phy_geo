@@ -399,7 +399,7 @@ def test(epoch, model, loss_function, phy_mode, smooth, hidden, test_loaders, ba
     return test_loss, bce_loss, kld_loss, phy_loss, smt_loss, hid_loss
 
 
-def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_mode, smooth,
+def train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
               hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample=1):
     """
     """
@@ -429,6 +429,9 @@ def train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_
         phy_e.append(phy_acc_e)
         smt_e.append(smt_acc_e)
         hid_e.append(hid_acc_e)
+
+        if epoch % 10 == 0:
+            lr_scheduler.step()
 
         if epoch == 1:
             min_err = test_acc

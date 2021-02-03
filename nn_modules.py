@@ -274,6 +274,43 @@ class Init(nn.Module):
         return x
 
 
+class ODE_func_fcn(nn.Module):
+    """
+    ODE function for the fully connected version
+    """
+    def __init__(self, in_channel, hidden_channel, num_layers=1):
+        super().__init__()
+        in_channel = in_channel * 59
+        hidden_channel = in_channel * 2
+
+        self.num_layers = num_layers
+        self.in_layer = nn.Linear(in_channel, hidden_channel)
+        self.layers = nn.ModuleList()
+        for i in range(self.num_layers):
+            self.layers.append(nn.Linear(hidden_channel, hidden_channel))
+        self.out_layer = nn.Linear(hidden_channel, in_channel)
+
+    def forward(self, t, x):
+        # print("Input shape: ", x.shape)
+        N, V, C = x.shape
+
+        x = x.view(-1, V * C)
+        # print("Viewed shape: ", x.shape)
+        # x = x.permute(0, 2, 1).contiguous()
+        x = F.elu(self.in_layer(x))
+        for idx, layer in enumerate(self.layers):
+            x = F.elu(layer(x))
+            # print("Layer {} shape {}".format(idx, x.shape))
+
+        # x = F.elu(self.layers(x))
+
+        x = torch.tanh(self.out_layer(x))
+        # x = x.permute(0, 2, 1).contiguous()
+        x = x.view(N, V, C)
+        # print("End x shape: ", x.shape)
+        return x
+
+
 class ODE_func_lin(nn.Module):
     def __init__(self, in_channel, hidden_channel, num_layers=1):
         super().__init__()
@@ -462,7 +499,7 @@ class ODE_block(nn.Module):
             (x, edge_index, edge_attr) = x
         N, V, C = x.shape
 
-        if self.ode_func_type in ['conv', 'autoencoder']:
+        if self.ode_func_type in ['conv', 'autoencoder', 'fcn']:
             pass
         elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
             edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
@@ -523,6 +560,8 @@ class ODERNN(nn.Module):
                                                     bias=bias,
                                                     sample_rate=sample_rate
                                                     )
+        elif ode_func_type == "fcn":
+            self.odefunc = ODE_func_fcn(self.input_dim, self.hidden_dim, num_layers=num_layers)
         elif ode_func_type == 'linear':
             print('Only apply to single graph.')
             exit(0)
@@ -574,7 +613,7 @@ class ODERNN(nn.Module):
         for t in range(1, T):
             last_h = last_h.view(N, V, -1)
             
-            if self.ode_func_type in ['conv', 'autoencoder']:
+            if self.ode_func_type in ['conv', 'autoencoder', 'fcn']:
                 last_h = self.ode_solver(last_h, 1, steps=1)
             elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
                 last_h = self.ode_solver((last_h, edge_index, edge_attr), 1, steps=1)

@@ -28,7 +28,7 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--config', type=str, default='params', help='config filename')
+    parser.add_argument('--config', type=str, default='p16', help='config filename')
     parser.add_argument('--seed', type=int, default=123, help='random seed')
     parser.add_argument('--logging', type=bool, default=True, help='logging')
     parser.add_argument('--stage', type=int, default=1, help='1.VAE, 2.BO, 12.VAE_BO, 3.Eval VAE')
@@ -145,9 +145,13 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
         phy_mode = hparams.phy_mode
         smooth = hparams.smooth
         hidden = hparams.hidden
-        
+
+        # Set up optimizer and LR scheduler
         optimizer = optim.Adam(model.parameters(), lr=hparams.learning_rate)
-        train.train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_mode, smooth,
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparams.gamma, verbose=True)
+
+        # Run the training loop
+        train.train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
                         hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
     else:
         model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest))
