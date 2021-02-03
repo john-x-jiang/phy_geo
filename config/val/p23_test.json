@@ -1,0 +1,64 @@
+{
+    "model_type": "physics",
+    "model_name": "p23",
+    "net_arch": "ode_rnn",
+    "learning_rate": 5e-4,
+    "batch_size": 16,
+    "num_epochs": 500,
+    "latent_dim": 64,
+    "seq_len": 101,
+    "ode_func_type": "autoencoder",
+    "num_layers": 3,
+    "method": "rk4",
+    "rtol": 1e-3,
+    "atol": 1e-5,
+    "cell_type": "GRU",
+    "nf": [
+        1,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256
+    ],
+    "makegraph": 0,
+    "heart_torso": 1,
+    "anneal": 1,
+    "device": 5,
+    "sample": 1,
+    "subset": 1,
+    "phy_mode": 1,
+    "smooth": 5e-3,
+    "hidden": 0,
+    "graph_name": [
+        "heart_graclus_hier",
+        "heart_test_graclus_hier"
+    ],
+    "heart_name": [
+        "heart",
+        "heart_test"
+    ],
+    "num_meshfree": [
+        568,
+        568
+    ],
+    "structures": [
+        "heart",
+        "heart_test"
+    ],
+    "val_graph": [
+        "heart_graclus_hier"
+    ],
+    "val_heart": [
+        "heart"
+    ],
+    "val_meshfree": [
+        568
+    ],
+    "val_structures": [
+        "heart"
+    ],
+    "vae_latest": "m_best",
+    "verbose_bo":1
+}
