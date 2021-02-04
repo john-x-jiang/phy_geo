@@ -136,7 +136,7 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
         model.set_physics(h_L, t_L, H, val_heart[0])
         if fine_tune:
             pre_model_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'experiments', vae_type, hparams.pre_model_name)
-            model.load_state_dict(torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location='cuda:0'))
+            model.load_state_dict(torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
         
         model.to(device)
         # loss_function = net.loss_stgcnn
@@ -150,7 +150,7 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
         train.train_vae(model, optimizer, train_loaders, test_loaders, loss_function, phy_mode, smooth,
                         hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
     else:
-        model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest))
+        model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
         model = model.eval().to(device)
         train.eval_vae(model, train_loaders, model_dir, batch_size, seq_len, corMfrees)
         # train_heart_torso.eval_real_new(model, train_loaders, exp_dir, corMfrees)
@@ -204,7 +204,7 @@ def real_data_new(hparams, training=False):
 
         model.set_graphs(graphparams, heart_name)
 
-    model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:0'))
+    model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
     model = model.eval().to(device)
     train.eval_real_new(model, train_loaders, exp_dir, corMfrees)
 
