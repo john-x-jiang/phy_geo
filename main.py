@@ -139,7 +139,7 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
         model.set_physics(h_L, t_L, H, val_heart[0])
         if fine_tune:
             pre_model_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'experiments', vae_type, hparams.pre_model_name)
-            model.load_state_dict(torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
+            model.load_state_dict(torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location=device))
         
         model.to(device)
         # loss_function = net.loss_stgcnn
@@ -166,7 +166,9 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
         train.train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
                         hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
     else:
-        model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
+        if checkpt is None:
+            checkpt = torch.load(model_dir + '/' + hparams.vae_latest, map_location=device)
+        model.load_state_dict(checkpt['state_dict'])
         model = model.eval().to(device)
         train.eval_vae(model, train_loaders, model_dir, batch_size, seq_len, corMfrees)
         # train_heart_torso.eval_real_new(model, train_loaders, exp_dir, corMfrees)
@@ -220,7 +222,7 @@ def real_data_new(hparams, training=False):
 
         model.set_graphs(graphparams, heart_name)
 
-    model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
+    model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location=device))
     model = model.eval().to(device)
     train.eval_real_new(model, train_loaders, exp_dir, corMfrees)
 
@@ -244,7 +246,7 @@ if __name__ == '__main__':
         exp_path = 'experiments/{}/{}/{}'.format(hparams.model_type, args.config, args.checkpt)
         if os.path.isfile(exp_path):
             print("=> loading checkpoint '{}'".format(args.checkpt))
-            checkpt = torch.load(exp_path)
+            checkpt = torch.load(exp_path, map_location=device)
             print('checkpoint: ', checkpt.keys())
             print("=> loaded checkpoint '{}' (epoch {})".format(args.checkpt, checkpt['epoch']))
         else:
@@ -261,12 +263,12 @@ if __name__ == '__main__':
         print('--------------------------------------')
     elif args.stage == 2:
         print('Stage 2: begin evaluating vae for heart & torso ...')
-        learn_vae_heart_torso(hparams, training=False)
+        learn_vae_heart_torso(hparams, checkpt, training=False)
         print('Evaluating vae completed!')
         print('--------------------------------------')
     elif args.stage == 3:
         print('Stage 3: begin fine-tuning vae for heart & torso ...')
-        learn_vae_heart_torso(hparams, training=True, fine_tune=True)
+        learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=True)
         print('Tuning vae completed!')
         print('--------------------------------------')
     elif args.stage == 4:
