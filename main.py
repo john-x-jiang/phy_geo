@@ -240,7 +240,7 @@ if __name__ == '__main__':
     torch.cuda.set_device(hparams.device)
 
     # check for a checkpoint passed in to resume from
-    if args.checkpt is not 'None':
+    if args.checkpt != 'None':
         exp_path = 'experiments/{}/{}/{}'.format(hparams.model_type, args.config, args.checkpt)
         if os.path.isfile(exp_path):
             print("=> loading checkpoint '{}'".format(args.checkpt))
