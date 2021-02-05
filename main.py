@@ -32,12 +32,13 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=123, help='random seed')
     parser.add_argument('--logging', type=bool, default=True, help='logging')
     parser.add_argument('--stage', type=int, default=1, help='1.VAE, 2.BO, 12.VAE_BO, 3.Eval VAE')
+    parser.add_argument('--checkpt', type=str, default='None', help='checkpoint to resume training from')
 
     args = parser.parse_args()
     return args
 
 
-def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
+def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
     """Generative modeling of the HD tissue properties
     """
     vae_type = hparams.model_type
@@ -76,6 +77,8 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
     structures = hparams.structures
     sample = hparams.sample if training else 1
     subset = hparams.subset if training else 1
+    learning_rate = hparams.learning_rate
+    epoch_start = 1
     # subset = 1
 
     # initialize the model
@@ -146,12 +149,21 @@ def learn_vae_heart_torso(hparams, training=True, fine_tune=False):
         smooth = hparams.smooth
         hidden = hparams.hidden
 
+        # Set checkpoint values to model and learning rate
+        if checkpt is not None:
+            model.load_state_dict(checkpt['state_dict'])
+            learning_rate = checkpt['cur_learning_rate']
+            epoch_start = checkpt['epoch'] + 1
+
         # Set up optimizer and LR scheduler
-        optimizer = optim.Adam(model.parameters(), lr=hparams.learning_rate)
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        if checkpt is not None:
+            optimizer.load_state_dict(checkpt['optimizer'])
+
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparams.gamma, verbose=True)
 
         # Run the training loop
-        train.train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
+        train.train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
                         hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample)
     else:
         model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location='cuda:{}'.format(hparams.device)))
@@ -227,9 +239,24 @@ if __name__ == '__main__':
     hparams = utils.Params(json_path)
     torch.cuda.set_device(hparams.device)
 
+    # check for a checkpoint passed in to resume from
+    if args.checkpt is not 'None':
+        exp_path = 'experiments/{}/{}/{}'.format(hparams.model_type, args.config, args.checkpt)
+        if os.path.isfile(exp_path):
+            print("=> loading checkpoint '{}'".format(args.checkpt))
+            checkpt = torch.load(exp_path)
+            print('checkpoint: ', checkpt.keys())
+            print("=> loaded checkpoint '{}' (epoch {})".format(args.checkpt, checkpt['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.checkpt))
+            exit(0)
+    else:
+        checkpt = None
+
+    # Go into the proper stage
     if args.stage == 1:  # generative modeling
         print('Stage 1: begin training vae for heart & torso ...')
-        learn_vae_heart_torso(hparams)
+        learn_vae_heart_torso(hparams, checkpt)
         print('Training vae completed!')
         print('--------------------------------------')
     elif args.stage == 2:

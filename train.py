@@ -335,10 +335,7 @@ def train(epoch, model, loss_function, phy_mode, smooth, hidden, optimizer, trai
             if idx > int(sample * N / batch_size):
                 break
 
-    torch.save(model.state_dict(), model_dir + '/m_latest')
-    if epoch % 10 == 0:
-        torch.save(model.state_dict(), model_dir + '/m_' + str(epoch))
-    
+
     train_loss /= (n * batch_size)
     bce_loss /= (n * batch_size)
     kld_loss /= (n * batch_size)
@@ -399,7 +396,7 @@ def test(epoch, model, loss_function, phy_mode, smooth, hidden, test_loaders, ba
     return test_loss, bce_loss, kld_loss, phy_loss, smt_loss, hid_loss
 
 
-def train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
+def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
               hidden, model_dir, num_epochs, batch_size, seq_len, corMfrees, anneal, sample=1):
     """
     """
@@ -410,13 +407,29 @@ def train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_
     bce_e, kld_e, phy_e, smt_e, hid_e = [], [], [], [], []
 
     min_err = None
-    for epoch in range(1, num_epochs + 1):
+
+    # Load in current arrays if checkpt given
+    if checkpt is not None:
+        train_a, test_a = checkpt['train_acc'], checkpt['test_acc']
+
+        bce_t, kld_t, phy_t, smt_t, hid_t = checkpt['bce_t'], checkpt['kld_t'], checkpt['phy_t'], \
+                                            checkpt['smt_t'], checkpt['hid_t']
+
+        bce_e, kld_e, phy_e, smt_e, hid_e = checkpt['bce_e'], checkpt['kld_e'], checkpt['phy_e'], \
+                                            checkpt['smt_e'], checkpt['hid_e']
+
+        min_err = checkpt['test_acc'][-1]
+
+    for epoch in range(epoch_start, num_epochs + 1):
+        # Train and test
         ts = time.time()
         train_acc, bce_acc_t, kld_acc_t, phy_acc_t, smt_acc_t, hid_acc_t = \
             train(epoch, model, loss_function, phy_mode, smooth, hidden, optimizer, train_loaders, batch_size, seq_len, model_dir, anneal, sample)
         test_acc, bce_acc_e, kld_acc_e, phy_acc_e, smt_acc_e, hid_acc_e = \
             test(epoch, model, loss_function, phy_mode, smooth, hidden, test_loaders, batch_size, seq_len, anneal)
         te = time.time()
+
+        # Append epoch metrics to arrays
         train_a.append(train_acc)
         bce_t.append(bce_acc_t)
         kld_t.append(kld_acc_t)
@@ -430,21 +443,57 @@ def train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_
         smt_e.append(smt_acc_e)
         hid_e.append(hid_acc_e)
 
+        # Step LR if 10th epoch
         if epoch % 10 == 0:
             lr_scheduler.step()
 
+        # Generate the checkpoint for this current epoch
+        checkpt = {
+            # Base parameters to reload
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'cur_learning_rate': lr_scheduler.get_last_lr()[0],
+            'train_acc': train_a,
+            'test_acc': test_a,
+
+            # Holding the current arrays for training
+            'bce_t': bce_t,
+            'kld_t': kld_t,
+            'phy_t': phy_t,
+            'smt_t': smt_t,
+            'hid_t': hid_t,
+
+            # Holding the current arrays for testing
+            'bce_e': bce_e,
+            'kld_e': kld_e,
+            'phy_e': phy_e,
+            'smt_e': smt_e,
+            'hid_e': hid_e,
+        }
+
+        # Check if current epoch is better than best so far
         if epoch == 1:
             min_err = test_acc
         else:
             if min_err > test_acc:
                 min_err = test_acc
-                torch.save(model.state_dict(), model_dir + '/m_best')
-        
+                torch.save(checkpt, model_dir + '/m_best')
+
+        # Save the latest model
+        torch.save(checkpt, model_dir + '/m_latest')
+
+        # Every 10 epochs, reduce the learning rate and save that decade of training
+        if epoch % 10 == 0:
+            torch.save(checkpt, model_dir + '/m_' + str(epoch))
+
+        # Print and write out epoch logs
         logs = 'Epoch: {:03d}, Time: {:.4f}, Train: {:.4f}, Test: {:.4f}'.format(epoch, (te - ts) / 60, train_acc, test_acc)
         print(logs)
         with open(os.path.join(model_dir, 'log.txt'), 'a+') as f:
             f.write(logs + '\n')
 
+    # Handles plotting and saving information over the training session
     plot_losses(train_a, test_a, model_dir, num_epochs, 'total')
     plot_losses(bce_t, bce_e, model_dir, num_epochs, 'bce')
     plot_losses(kld_t, kld_e, model_dir, num_epochs, 'kld')
@@ -478,6 +527,7 @@ def train_vae(model, optimizer, lr_scheduler, train_loaders, test_loaders, loss_
     # for heart_name, corMfree in corMfrees.items():
     #     plot_zmean(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
     #     plot_reconstructions(model, test_loaders[heart_name], model_dir, corMfree, heart_name)
+
 
 def get_network_paramcount(model):
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
