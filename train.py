@@ -444,8 +444,8 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
         hid_e.append(hid_acc_e)
 
         # Step LR if 10th epoch
-        if epoch % 10 == 0:
-            lr_scheduler.step()
+        # if epoch % 10 == 0:
+        lr_scheduler.step(test_acc)
 
         # Generate the checkpoint for this current epoch
         checkpt = {
@@ -453,7 +453,7 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
             'epoch': epoch,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'cur_learning_rate': lr_scheduler.get_last_lr()[0],
+            'cur_learning_rate': lr_scheduler._last_lr,
             'train_acc': train_a,
             'test_acc': test_a,
 
@@ -488,7 +488,8 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
             torch.save(checkpt, model_dir + '/m_' + str(epoch))
 
         # Print and write out epoch logs
-        logs = 'Epoch: {:03d}, Time: {:.4f}, Train: {:.4f}, Test: {:.4f}'.format(epoch, (te - ts) / 60, train_acc, test_acc)
+        logs = 'Epoch: {:03d}, Time: {:.4f}, Train: {:.4f}, Test: {:.4f}                                             ' \
+               ''.format(epoch, (te - ts) / 60, train_acc, test_acc)
         print(logs)
         with open(os.path.join(model_dir, 'log.txt'), 'a+') as f:
             f.write(logs + '\n')

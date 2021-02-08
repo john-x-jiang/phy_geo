@@ -160,7 +160,8 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
         if checkpt is not None:
             optimizer.load_state_dict(checkpt['optimizer'])
 
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparams.gamma, verbose=True)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=hparams.gamma, patience=10,
+                                                                  min_lr=5e-5, verbose=True)
 
         # Run the training loop
         train.train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loaders, test_loaders, loss_function, phy_mode, smooth,
