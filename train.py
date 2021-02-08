@@ -492,8 +492,7 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
             torch.save(checkpt, model_dir + '/m_' + str(epoch))
 
         # Print and write out epoch logs
-        logs = 'Epoch: {:03d}, Time: {:.4f}, Train: {:.4f}, Test: {:.4f}                                             ' \
-               ''.format(epoch, (te - ts) / 60, train_acc, test_acc)
+        logs = 'Epoch: {:03d}, Time: {:.4f}, Train: {:.4f}, Test: {:.4f}'.format(epoch, (te - ts) / 60, train_acc, test_acc)
         print(logs)
         with open(os.path.join(model_dir, 'log.txt'), 'a+') as f:
             f.write(logs + '\n')
