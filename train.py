@@ -445,7 +445,11 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
 
         # Step LR if 10th epoch
         # if epoch % 10 == 0:
-        lr_scheduler.step(test_acc)
+        if lr_scheduler is not None:
+            lr_scheduler.step(test_acc)
+            last_lr = lr_scheduler._last_lr
+        else:
+            last_lr = 1
 
         # Generate the checkpoint for this current epoch
         checkpt = {
@@ -453,7 +457,7 @@ def train_vae(model, checkpt, epoch_start, optimizer, lr_scheduler, train_loader
             'epoch': epoch,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'cur_learning_rate': lr_scheduler._last_lr,
+            'cur_learning_rate': last_lr,
             'train_acc': train_a,
             'test_acc': test_a,
 
