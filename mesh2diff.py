@@ -29,11 +29,11 @@ class GraphPyramid():
         K: K in KNN for defining edge connectivity in the graph
     """
 
-    def __init__(self, heart='case3', structure='EC', mfree=1230, seq_len=201, K=6):
+    def __init__(self, heart='case3', structure='EC', mfree=1230, seq_len=201, graph_method='graclus_hier', K=6):
         """
         """
         self.path_in = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'training', heart)
-        # import ipdb; ipdb.set_trace()
+        self.method = graph_method
         self.path_structure = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'structure', structure)
         self.pre_transform = T.KNNGraph(k=K)
         self.transform = T.Cartesian(cat=False)
@@ -56,7 +56,7 @@ class GraphPyramid():
                     t_g, t_g1, t_g2, t_g3, t_P10, t_P21, t_P32, H_inv, P):
         """save the graphs and the pooling matrices in a file
         """
-        with open(self.filename + '_graclus_hier' + '.pickle', 'wb') as f:
+        with open('{}_{}.pickle'.format(self.filename, self.method), 'wb') as f:
             pickle.dump(h_g, f)
             pickle.dump(h_g1, f)
             pickle.dump(h_g2, f)
