@@ -337,7 +337,7 @@ class GraphPyramid():
             H_dec, P_dec = self.bipartite_graph(h_g4, center_data)
             Hs.append(H_dec)
             Ps.append(P_dec)
-        else:
-            raise NotImplementedError
 
             self.save_graph(h_gs, h_Ps, t_gs, t_Ps, Hs, Ps)
+        else:
+            raise NotImplementedError
