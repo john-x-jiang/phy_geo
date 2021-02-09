@@ -570,7 +570,8 @@ class ODERNN(nn.Module):
 
         self.ode_solver = ODE_block(self.odefunc, ode_func_type=self.ode_func_type, method=method, rtol=rtol, atol=atol, adjoint=True)
 
-        if cell_type == 'GRU':
+        self.cell_type = cell_type
+        if self.cell_type == 'GRU':
             self.rnn_layer = GCGRUCell(
                 input_dim=self.input_dim,
                 hidden_dim=self.hidden_dim,
@@ -583,7 +584,7 @@ class ODERNN(nn.Module):
                 bias=bias,
                 sample_rate=self.sample_rate
             )
-        elif cell_type == 'RNN':
+        elif self.cell_type == 'RNN':
             self.rnn_layer = GCRNNCell(
                 input_dim=self.input_dim,
                 hidden_dim=self.hidden_dim,
@@ -596,6 +597,10 @@ class ODERNN(nn.Module):
                 bias=bias,
                 sample_rate=self.sample_rate
             )
+        elif self.cell_type == 'RegularGRU':
+            self.rnn_layer = nn.GRUCell(input_size=self.input_dim, hidden_size=self.hidden_dim)
+        else:
+            raise NotImplementedError
 
     def forward(self, x, edge_index, edge_attr):
         gru_out = []
@@ -621,12 +626,20 @@ class ODERNN(nn.Module):
             last_h = last_h.view(N * V, -1)
             ode_out.append(last_h.view(1, N, V, C))
 
-            h = self.rnn_layer(
-                x=x[t, :, :],
-                hidden=last_h,
-                edge_index=edge_index,
-                edge_attr=edge_attr
-            )
+            if self.cell_type in ['GRU', 'RNN']:
+                h = self.rnn_layer(
+                    x=x[t, :, :],
+                    hidden=last_h,
+                    edge_index=edge_index,
+                    edge_attr=edge_attr
+                )
+            elif self.cell_type in ['RegularGRU']:
+                h = self.rnn_layer(
+                    x[t, :, :],
+                    last_h
+                )
+            else:
+                raise NotImplementedError
 
             last_h = h
             gru_out.append(h.view(1, N, V, C))

@@ -72,7 +72,7 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
     train_loaders = dict()
     test_loaders = dict()
     heart_names = hparams.heart_name
-    graph_names = hparams.graph_name
+    graph_method = hparams.graph_method
     num_meshfrees = hparams.num_meshfree
     structures = hparams.structures
     sample = hparams.sample if training else 1
@@ -88,17 +88,16 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
         model = net.Graph_LODE(hparams, training=training)
     elif hparams.net_arch == 'ode_rnn':
         model = net.Graph_ODE_RNN(hparams, training=training)
+    elif hparams.net_arch == 'ode_rnn_embedding':
+        model = net.Graph_ODE_RNN_Embedding(hparams, training=training)
     else:
         raise NotImplementedError('The architecture {} is not implemented'.format(hparams.net_arch))
     
-    for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
+    for heart_name, num_meshfree, structure in zip(heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)
-        graph_dir = osp.join(root_dir, 'raw', graph_name)
-        # Create graph and load graph information
-        # if training and hparams.makegraph:
-        #     g = mesh2.GraphPyramid(heart_name, structure, num_meshfree, seq_len)
-        #     g.make_graph()
-        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso)
+        graph_dir = osp.join(root_dir, 'raw/{}_{}'.format(heart_name, graph_method))
+        # import ipdb; ipdb.set_trace()
+        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso, graph_method)
 
         # initialize datasets and dataloader
         train_dataset = HeartGraphDataset(root=root_dir, num_meshfree=num_meshfree, seq_len=seq_len,
@@ -116,16 +115,12 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
 
     if training:
         val_heart = hparams.val_heart
-        val_graph = hparams.val_graph
         val_meshfree = hparams.val_meshfree
         val_structures = hparams.val_structures
         root_dir = osp.join(data_dir, val_heart[0])
 
-        graph_dir = osp.join(root_dir, 'raw', val_graph[0])
-        # if hparams.makegraph:
-        #     vg = mesh2.GraphPyramid(val_heart[0], val_structures[0], val_meshfree[0], seq_len)
-        #     vg.make_graph()
-        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso)
+        graph_dir = osp.join(root_dir, 'raw/{}_{}'.format(val_heart[0], graph_method))
+        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso, graph_method)
         # state = not fine_tune
         state = False
         test_dataset = HeartGraphDataset(root=root_dir, num_meshfree=val_meshfree[0], seq_len=seq_len,
@@ -191,7 +186,7 @@ def real_data_new(hparams, training=False):
     train_loaders = dict()
     test_loaders = dict()
     heart_names = hparams.heart_name
-    graph_names = hparams.graph_name
+    graph_method = hparams.graph_method
     num_meshfrees = hparams.num_meshfree
     structures = hparams.structures
     sample = hparams.sample if training else 1
@@ -207,9 +202,9 @@ def real_data_new(hparams, training=False):
 
     model = net.GraphTorsoHeart(hparams)
 
-    for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
+    for heart_name, num_meshfree, structure in zip(heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)
-        graph_dir = osp.join(root_dir, 'raw', graph_name)
+        graph_dir = osp.join(root_dir, 'raw/{}_{}'.format(heart_name, graph_method))
         # Create graph and load graph information
         # if training and hparams.makegraph:
         #     g = mesh2.GraphPyramid(heart_name, structure, num_meshfree, seq_len)

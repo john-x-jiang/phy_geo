@@ -2,7 +2,7 @@ import argparse
 import os
 import os.path as osp
 import torch
-import mesh2diff
+import mesh2embedding as mesh
 import utils
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -44,14 +44,13 @@ heart_torso = hparams.heart_torso
 data_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'training')
 
 heart_names = hparams.heart_name
-graph_names = hparams.graph_name
+graph_method = hparams.graph_method
 num_meshfrees = hparams.num_meshfree
 structures = hparams.structures
 
-for graph_name, heart_name, num_meshfree, structure in zip(graph_names, heart_names, num_meshfrees, structures):
+for heart_name, num_meshfree, structure in zip(heart_names, num_meshfrees, structures):
     print(heart_name)
     root_dir = osp.join(data_dir, heart_name)
-    graph_dir = osp.join(root_dir, 'raw', graph_name)
     # Create graph and load graph information
-    g = mesh2diff.GraphPyramid(heart_name, structure, num_meshfree, seq_len)
+    g = mesh.GraphPyramid(heart_name, structure, num_meshfree, seq_len, graph_method)
     g.make_graph(heart_name)
