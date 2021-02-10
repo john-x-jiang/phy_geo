@@ -698,24 +698,33 @@ class Graph_ODE_RNN_Embedding(nn.Module):
             return phi_h, phi_t_, l_h, torch.zeros_like(z), torch.zeros_like(z), h, h_
 
 
-class Graph_RNN(nn.Module):
+class Graph_Filter(nn.Module):
     def __init__(self, hparams, training=True):
         super().__init__()
         self.nf = hparams.nf
         self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
+        self.ode_func_type = hparams.ode_func_type
+        self.num_layers = hparams.num_layers
+        self.method = hparams.method
+        self.rtol = hparams.rtol
+        self.atol = hparams.atol
         self.cell_type = hparams.cell_type
+        self.decoder_out = hparams.decoder_out
 
         self.conv1 = gcn(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
         self.conv2 = gcn(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
         self.conv3 = gcn(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.trans = SplineSample(self.nf[4], self.nf[5], dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
 
-        self.fce1 = nn.Conv2d(self.nf[5], self.nf[6], 1)
+        self.fce1 = nn.Conv2d(self.nf[4], self.nf[6], 1)
         self.fce2 = nn.Conv2d(self.nf[6], self.latent_dim, 1)
+
+        self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
         
-        self.rnn = GRNN(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, cell_type=self.cell_type)
+        self.ode_rnn = GFilter(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, 
+                            ode_func_type=self.ode_func_type, num_layers=self.num_layers, method=self.method, 
+                            rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
@@ -812,12 +821,11 @@ class Graph_RNN(nn.Module):
         x = self.conv3(x, edge_index, edge_attr)  # 347*bs X f[3]
         x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
         x = torch.matmul(self.t_P23[heart_name], x)  # bs X 184 X f[3]
-        x = x.view(self.batch_size, -1, self.nf[4], self.seq_len)
-
-        # inverse
-        x = self.inverse(x, heart_name)
+        # x = x.view(self.batch_size, -1, self.nf[4], self.seq_len)
 
         # latent
+        x, edge_index, edge_attr = \
+            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.tg3[heart_name].edge_index, self.tg3[heart_name].edge_attr
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
         x = torch.tanh(self.fce2(x))
@@ -836,29 +844,24 @@ class Graph_RNN(nn.Module):
         edge_index, edge_attr = self.H_inv[heart_name].edge_index, self.H_inv[heart_name].edge_attr
         num_right, num_left = self.P[heart_name].shape[0], self.P[heart_name].shape[1]
         
-        N, V, C, T = x.shape
-        x_bin = torch.zeros(self.batch_size, num_right, C, self.seq_len).to(device)
-        # x = x.view(self.batch_size, num_left, -1)
-        # x_bin = torch.matmul(self.P[heart_name], x)
-        # x = x.view(self.batch_size, num_left, -1, self.seq_len)
+        x_bin = torch.zeros(self.batch_size, num_right, self.latent_dim, self.seq_len).to(device)
         x_bin = torch.cat((x_bin, x), 1)
 
         x_bin = x_bin.permute(3, 0, 1, 2).contiguous()
-        x_bin = x_bin.view(-1, C)
+        x_bin = x_bin.view(-1, self.latent_dim)
         edge_index, edge_attr = expand(self.batch_size, num_right + num_left, self.seq_len, edge_index, edge_attr)
 
         x_bin = self.trans(x_bin, edge_index, edge_attr)
-        x_bin = x_bin.view(self.seq_len, self.batch_size, num_right + num_left, -1)
+        x_bin = x_bin.view(self.seq_len, self.batch_size, -1, self.latent_dim)
         x_bin = x_bin.permute(1, 2, 3, 0).contiguous()
         
         x_bin = x_bin[:, 0:-num_left, :, :]
         return x_bin
     
-    def rnn_model(self, x, heart_name):
-        # import ipdb; ipdb.set_trace()
+    def ode_model(self, x, heart_name):
         edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-        h = self.rnn(x, edge_index, edge_attr)
-        return h
+        h, h_ = self.ode_rnn(x, edge_index, edge_attr)
+        return h, h_
     
     def decode(self, x, heart_name):
         """ graph  convolutional decoder
@@ -869,31 +872,33 @@ class Graph_RNN(nn.Module):
         x = F.elu(self.fcd4(x), inplace=True)
         x = x.permute(0, 2, 1, 3).contiguous()
 
-        x = x.view(self.batch_size, -1, self.nf[4] * self.seq_len)
+        pseudo_batch = self.batch_size if not self.decoder_out else 2 * self.batch_size
+
+        x = x.view(pseudo_batch, -1, self.nf[4] * self.seq_len)
         x = torch.matmul(self.P43[heart_name], x)  # bs X 184 X f[4]
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[4], self.seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+            x.view(pseudo_batch, -1, self.nf[4], self.seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
         x = self.deconv4(x, edge_index, edge_attr)  # (bs*184) X f[3]
 
-        x = x.view(self.batch_size, -1, self.nf[3] * self.seq_len)
+        x = x.view(pseudo_batch, -1, self.nf[3] * self.seq_len)
         x = torch.matmul(self.P32[heart_name], x)  # bs X 351 X f[3]
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[3], self.seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+            x.view(pseudo_batch, -1, self.nf[3], self.seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
         x = self.deconv3(x, edge_index, edge_attr)  # (bs*351) X f[2]
 
-        x = x.view(self.batch_size, -1, self.nf[2] * self.seq_len)
+        x = x.view(pseudo_batch, -1, self.nf[2] * self.seq_len)
         x = torch.matmul(self.P21[heart_name], x)  # bs X 646 X f[2]
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[2], self.seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+            x.view(pseudo_batch, -1, self.nf[2], self.seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
         x = self.deconv2(x, edge_index, edge_attr)  # (bs*646) X f[1]
 
-        x = x.view(self.batch_size, -1, self.nf[1] * self.seq_len)
+        x = x.view(pseudo_batch, -1, self.nf[1] * self.seq_len)
         x = torch.matmul(self.P10[heart_name], x)  # bs X 1230 X f[1]
         x, edge_index, edge_attr = \
-            x.view(self.batch_size, -1, self.nf[1], self.seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+            x.view(pseudo_batch, -1, self.nf[1], self.seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
         x = self.deconv1(x, edge_index, edge_attr)  # (bs*1230) X f[0]
 
-        x = x.view(self.batch_size, -1, self.seq_len)
+        x = x.view(pseudo_batch, -1, self.seq_len)
         return x
 
     def physics(self, phi_t, phi_h, heart_name):
@@ -905,12 +910,20 @@ class Graph_RNN(nn.Module):
         return phi_t_, l_h
     
     def forward(self, phi_t, heart_name):
-        z = self.encode(phi_t, heart_name)
-        h = self.rnn_model(z, heart_name)
+        mu = self.encode(phi_t, heart_name)
+        z = self.inverse(mu, heart_name)
+        h, h_ = self.ode_model(z, heart_name)
         
-        phi_h = self.decode(h, heart_name)
-        phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
-        return phi_h, phi_t_, l_h, torch.zeros_like(z), torch.zeros_like(z), h, h
+        if self.decoder_out:
+            h_concat = torch.cat([h, h_], dim=0)
+            phi = self.decode(h_concat, heart_name)
+            phi_h, phi_h_ = phi[0:self.batch_size, :, :], phi[self.batch_size:2 * self.batch_size, :, :]
+            phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
+            return phi_h, phi_t_, l_h, torch.zeros_like(mu), torch.zeros_like(mu), phi_h, phi_h_
+        else:
+            phi_h = self.decode(h, heart_name)
+            phi_t_, l_h = self.physics(phi_t, phi_h, heart_name)
+            return phi_h, phi_t_, l_h, torch.zeros_like(mu), torch.zeros_like(mu), h, h_
 
 
 def loss_stgcnn_mixed(recon_x, x, recon_y, y, l_h, mu, logvar, h, h_, phy_mode, smooth, hidden, *args):

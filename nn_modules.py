@@ -651,15 +651,55 @@ class ODERNN(nn.Module):
         return gru_out, ode_out
 
 
-class GRNN(nn.Module):
+class GFilter(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
                  degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
-                 cell_type='GRU'):
+                 ode_func_type='conv', num_layers=1, method='rk4', rtol=1e-5, atol=1e-7, cell_type='GRU'):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
+
+        self.initial = Init(self.input_dim, self.hidden_dim)
+
+        self.ode_func_type = ode_func_type
+        if self.ode_func_type == 'conv':
+            self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=num_layers)
+        elif self.ode_func_type == 'gcn':
+            self.odefunc = ODE_func_gcn(self.hidden_dim, self.hidden_dim,
+                                         dim=dim,
+                                         kernel_size=kernel_size,
+                                         is_open_spline=is_open_spline,
+                                         degree=degree,
+                                         norm=norm,
+                                         root_weight=root_weight,
+                                         bias=bias,
+                                         sample_rate=sample_rate,
+                                         num_layers=num_layers
+                                         )
+        elif self.ode_func_type == 'autoencoder':
+            self.odefunc = ODE_func_autoencoder([self.hidden_dim, int(self.hidden_dim / 2), int(self.hidden_dim / 4), int(self.hidden_dim / 8)])
+        elif self.ode_func_type == 'mix_autoencoder':
+            self.odefunc = ODE_func_mix_autoencoder([self.hidden_dim, int(self.hidden_dim / 2), int(self.hidden_dim / 4), int(self.hidden_dim / 8)],
+                                                    dim=dim,
+                                                    kernel_size=kernel_size,
+                                                    is_open_spline=is_open_spline,
+                                                    degree=degree,
+                                                    norm=norm,
+                                                    root_weight=root_weight,
+                                                    bias=bias,
+                                                    sample_rate=sample_rate
+                                                    )
+        elif ode_func_type == "fcn":
+            self.odefunc = ODE_func_fcn(self.input_dim, self.hidden_dim, num_layers=num_layers)
+        elif ode_func_type == 'linear':
+            print('Only apply to single graph.')
+            exit(0)
+        else:
+            raise NotImplementedError
+
+        self.ode_solver = ODE_block(self.odefunc, ode_func_type=self.ode_func_type, method=method, rtol=rtol, atol=atol, adjoint=True)
 
         self.cell_type = cell_type
         if self.cell_type == 'GRU':
@@ -695,37 +735,49 @@ class GRNN(nn.Module):
 
     def forward(self, x, edge_index, edge_attr):
         gru_out = []
+        ode_out = []
 
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.shape
 
-        last_h = self.rnn_layer.init_hidden(N * V)
+        z = self.initial(x[0])
+        gru_out.append(z.view(1, N, V, C))
+        ode_out.append(z.view(1, N, V, C))
         x = x.view(T, N * V, C)
 
-        for t in range(T):
-            last_h = last_h.view(N * V, -1)
+        for t in range(1, T):
+            z = z.view(N, V, -1)
+            
+            if self.ode_func_type in ['conv', 'autoencoder', 'fcn']:
+                z = self.ode_solver(z, 1, steps=1)
+            elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
+                z = self.ode_solver((z, edge_index, edge_attr), 1, steps=1)
+            
+            z = z.view(N * V, -1)
+            ode_out.append(z.view(1, N, V, C))
 
             if self.cell_type in ['GRU', 'RNN']:
                 h = self.rnn_layer(
                     x=x[t, :, :],
-                    hidden=last_h,
+                    hidden=z,
                     edge_index=edge_index,
                     edge_attr=edge_attr
                 )
             elif self.cell_type in ['RegularGRU']:
                 h = self.rnn_layer(
                     x[t, :, :],
-                    last_h
+                    z
                 )
             else:
                 raise NotImplementedError
 
-            last_h = h
             gru_out.append(h.view(1, N, V, C))
 
         gru_out = torch.cat(gru_out, dim=0)
+        ode_out = torch.cat(ode_out, dim=0)
         gru_out = gru_out.permute(1, 2, 3, 0).contiguous()
-        return gru_out
+        ode_out = ode_out.permute(1, 2, 3, 0).contiguous()
+        return gru_out, ode_out
 
 
 class st_gcn(nn.Module):

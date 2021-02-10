@@ -1,12 +1,17 @@
 {
     "model_type": "physics",
     "model_name": "p44",
-    "net_arch": "rnn",
+    "net_arch": "filter",
     "learning_rate": 5e-4,
     "batch_size": 8,
     "num_epochs": 500,
     "latent_dim": 64,
     "seq_len": 101,
+    "ode_func_type": "conv",
+    "num_layers": 2,
+    "method": "rk4",
+    "rtol": 1e-3,
+    "atol": 1e-5,
     "cell_type": "GRU",
     "nf": [
         1,
@@ -27,6 +32,7 @@
     "phy_mode": 1,
     "smooth": 5e-3,
     "hidden": 0,
+    "decoder_out": 0,
     "graph_method": "graclus_hier",
     "heart_name": [
         "heart"
