@@ -651,6 +651,83 @@ class ODERNN(nn.Module):
         return gru_out, ode_out
 
 
+class GRNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
+                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
+                 cell_type='GRU'):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.sample_rate = sample_rate
+
+        self.cell_type = cell_type
+        if self.cell_type == 'GRU':
+            self.rnn_layer = GCGRUCell(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                kernel_size=self.kernel_size,
+                dim=dim,
+                is_open_spline=is_open_spline,
+                degree=degree,
+                norm=norm,
+                root_weight=root_weight,
+                bias=bias,
+                sample_rate=self.sample_rate
+            )
+        elif self.cell_type == 'RNN':
+            self.rnn_layer = GCRNNCell(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                kernel_size=self.kernel_size,
+                dim=dim,
+                is_open_spline=is_open_spline,
+                degree=degree,
+                norm=norm,
+                root_weight=root_weight,
+                bias=bias,
+                sample_rate=self.sample_rate
+            )
+        elif self.cell_type == 'RegularGRU':
+            self.rnn_layer = nn.GRUCell(input_size=self.input_dim, hidden_size=self.hidden_dim)
+        else:
+            raise NotImplementedError
+
+    def forward(self, x, edge_index, edge_attr):
+        gru_out = []
+
+        x = x.permute(3, 0, 1, 2).contiguous()
+        T, N, V, C = x.shape
+
+        last_h = self.rnn_layer.init_hidden(N * V)
+        x = x.view(T, N * V, C)
+
+        for t in range(T):
+            last_h = last_h.view(N * V, -1)
+
+            if self.cell_type in ['GRU', 'RNN']:
+                h = self.rnn_layer(
+                    x=x[t, :, :],
+                    hidden=last_h,
+                    edge_index=edge_index,
+                    edge_attr=edge_attr
+                )
+            elif self.cell_type in ['RegularGRU']:
+                h = self.rnn_layer(
+                    x[t, :, :],
+                    last_h
+                )
+            else:
+                raise NotImplementedError
+
+            last_h = h
+            gru_out.append(h.view(1, N, V, C))
+
+        gru_out = torch.cat(gru_out, dim=0)
+        gru_out = gru_out.permute(1, 2, 3, 0).contiguous()
+        return gru_out
+
+
 class st_gcn(nn.Module):
     def __init__(self,
                  in_channels,
