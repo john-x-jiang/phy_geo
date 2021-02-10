@@ -661,7 +661,7 @@ class GFilter(nn.Module):
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
 
-        self.initial = Init(self.input_dim, self.hidden_dim)
+        self.initial = Init(self.input_dim, 2 * self.input_dim)
 
         self.ode_func_type = ode_func_type
         if self.ode_func_type == 'conv':
