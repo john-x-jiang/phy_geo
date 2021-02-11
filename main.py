@@ -84,7 +84,7 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
     # initialize the model
     if hparams.net_arch == 'phy':
         model = net.GraphTorsoHeart(hparams, training=training)
-    elif hparams.net_arch == 'filter':
+    elif hparams.net_arch in ['filter', 'flatten_filter']:
         model = net.Graph_Filter(hparams, training=training)
     elif hparams.net_arch == 'ode_rnn':
         model = net.Graph_ODE_RNN(hparams, training=training)

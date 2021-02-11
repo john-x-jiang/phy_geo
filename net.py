@@ -702,6 +702,7 @@ class Graph_Filter(nn.Module):
     def __init__(self, hparams, training=True):
         super().__init__()
         self.nf = hparams.nf
+        self.net_arch = hparams.net_arch
         self.batch_size = hparams.batch_size if training else 1
         self.seq_len = hparams.seq_len
         self.latent_dim = hparams.latent_dim
@@ -721,10 +722,15 @@ class Graph_Filter(nn.Module):
         self.fce2 = nn.Conv2d(self.nf[6], self.latent_dim, 1)
 
         self.trans = SplineSample(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
-        
-        self.ode_rnn = GFilter(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3, norm=False, 
-                            ode_func_type=self.ode_func_type, num_layers=self.num_layers, method=self.method, 
-                            rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
+
+        if self.net_arch == "filter":
+            self.ode_rnn = GFilter(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3,
+                                   norm=False, ode_func_type=self.ode_func_type, num_layers=self.num_layers,
+                                   method=self.method, rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
+        elif self.net_arch == "flatten_filter":
+            self.ode_rnn = GFlattenFilter(input_dim=self.latent_dim, hidden_dim=self.latent_dim, kernel_size=3, dim=3,
+                                          norm=False, ode_func_type=self.ode_func_type, num_layers=self.num_layers,
+                                          method=self.method, rtol=self.rtol, atol=self.atol, cell_type=self.cell_type)
 
         self.fcd3 = nn.Conv2d(self.latent_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)

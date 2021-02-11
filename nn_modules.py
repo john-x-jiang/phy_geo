@@ -30,7 +30,7 @@ class gcn(nn.Module):
         self.sample_rate = sample_rate
 
         self.glayer = SplineSample(in_channels=in_channels, out_channels=out_channels, dim=dim, kernel_size=kernel_size[0], norm=False)
-        
+
         self.residual = nn.Sequential(
             nn.Conv2d(
                 in_channels,
@@ -89,7 +89,7 @@ class GCRNNCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.hr = SplineSample(in_channels=self.hidden_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -100,11 +100,11 @@ class GCRNNCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-    
+
     def forward(self, x, hidden, edge_index, edge_attr):
         h_new = torch.tanh(self.xr(x, edge_index, edge_attr) + self.hr(hidden, edge_index, edge_attr))
         return h_new
-    
+
     def init_hidden(self, graph_size):
         return torch.zeros(graph_size, self.hidden_dim, device=device)
 
@@ -137,7 +137,7 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.hr = SplineSample(in_channels=self.hidden_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -148,7 +148,7 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.xz = SplineSample(in_channels=self.input_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -159,7 +159,7 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.hz = SplineSample(in_channels=self.hidden_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -170,7 +170,7 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.xn = SplineSample(in_channels=self.input_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -181,7 +181,7 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-        
+
         self.hn = SplineSample(in_channels=self.hidden_dim,
                                 out_channels=self.hidden_dim,
                                 dim=dim,
@@ -192,14 +192,14 @@ class GCGRUCell(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=self.sample_rate)
-    
+
     def forward(self, x, hidden, edge_index, edge_attr):
         r = torch.sigmoid(self.xr(x, edge_index, edge_attr) + self.hr(hidden, edge_index, edge_attr))
         z = torch.sigmoid(self.xz(x, edge_index, edge_attr) + self.hz(hidden, edge_index, edge_attr))
         n = torch.tanh(self.xn(x, edge_index, edge_attr) + r * self.hr(hidden, edge_index, edge_attr))
         h_new = (1 - z) * n + z * hidden
         return h_new
-    
+
     def init_hidden(self, graph_size):
         return torch.zeros(graph_size, self.hidden_dim, device=device)
 
@@ -214,7 +214,7 @@ class ReverseGRU(nn.Module):
         self.sample_rate = sample_rate
 
         self.init_layer = Init(self.hidden_dim, 2 * self.hidden_dim)
-        
+
         self.odefunc = ODE_func_lin(self.hidden_dim, 2 * self.hidden_dim, num_layers=1)
         self.gde_solver = GDE_block(self.odefunc, method='rk4', adjoint=True)
 
@@ -230,7 +230,7 @@ class ReverseGRU(nn.Module):
             bias=bias,
             sample_rate=self.sample_rate
         )
-    
+
     def forward(self, x, edge_index, edge_attr):
         x = x.permute(3, 0, 1, 2).contiguous()
         T, N, V, C = x.size()
@@ -252,20 +252,23 @@ class ReverseGRU(nn.Module):
                     edge_attr=edge_attr
                 )
             last_h = h
-        
+
         return last_h
-    
+
     # def __init_hidden(self, graph_size):
     #     init_states = self.gru_layer.init_hidden(graph_size)
     #     return init_states
 
 
 class Init(nn.Module):
+    """
+    Initialization of the ODE using the geometric structure but disregarding spatial dynamics through 1-D Conv
+    """
     def __init__(self, in_channel, hidden_channel):
         super().__init__()
         self.g1 = nn.Conv1d(in_channel, hidden_channel, 1)
         self.g2 = nn.Conv1d(hidden_channel, in_channel, 1)
-    
+
     def forward(self, x):
         x = x.permute(0, 2, 1).contiguous()
         x = F.elu(self.g1(x))
@@ -274,40 +277,45 @@ class Init(nn.Module):
         return x
 
 
+class InitFlatten(nn.Module):
+    """
+    Handles initialization of the ODE using a flattened graph, disregarding geometrical structure in
+    latent space
+    """
+    def __init__(self, in_channel, hidden_channel):
+        super().__init__()
+        self.l1 = nn.Linear(in_channel, in_channel * 2)
+        self.l2 = nn.Linear(in_channel * 2, hidden_channel)
+
+    def forward(self, x):
+        x = F.elu(self.l1(x))
+        x = torch.tanh(self.l2(x))
+        return x
+
+
 class ODE_func_fcn(nn.Module):
     """
-    ODE function for the fully connected version
+    ODE function representing a fully-connected network of some given layers
     """
     def __init__(self, in_channel, hidden_channel, num_layers=1):
         super().__init__()
-        in_channel = in_channel * 59
-        hidden_channel = in_channel * 2
-
         self.num_layers = num_layers
+
         self.in_layer = nn.Linear(in_channel, hidden_channel)
+
         self.layers = nn.ModuleList()
         for i in range(self.num_layers):
             self.layers.append(nn.Linear(hidden_channel, hidden_channel))
+
         self.out_layer = nn.Linear(hidden_channel, in_channel)
 
     def forward(self, t, x):
-        # print("Input shape: ", x.shape)
-        N, V, C = x.shape
-
-        x = x.view(-1, V * C)
-        # print("Viewed shape: ", x.shape)
-        # x = x.permute(0, 2, 1).contiguous()
         x = F.elu(self.in_layer(x))
-        for idx, layer in enumerate(self.layers):
-            x = F.elu(layer(x))
-            # print("Layer {} shape {}".format(idx, x.shape))
 
-        # x = F.elu(self.layers(x))
+        for layer in self.layers:
+            x = F.elu(layer(x))
 
         x = torch.tanh(self.out_layer(x))
-        # x = x.permute(0, 2, 1).contiguous()
-        x = x.view(N, V, C)
-        # print("End x shape: ", x.shape)
         return x
 
 
@@ -316,20 +324,20 @@ class ODE_func_lin(nn.Module):
         super().__init__()
         self.num_layers = num_layers
         self.in_layer = nn.Conv1d(in_channel, hidden_channel, 1)
-        
+
         self.layers = nn.ModuleList()
         for i in range(self.num_layers):
             self.layers.append(nn.Conv1d(hidden_channel, hidden_channel, 1))
-        
+
         self.out_layer = nn.Conv1d(hidden_channel, in_channel, 1)
-    
+
     def forward(self, t, x):
         x = x.permute(0, 2, 1).contiguous()
         x = F.elu(self.in_layer(x))
-        
+
         for layer in self.layers:
             x = F.elu(layer(x))
-        
+
         x = torch.tanh(self.out_layer(x))
         x = x.permute(0, 2, 1).contiguous()
         return x
@@ -376,10 +384,10 @@ class ODE_func_gcn(nn.Module):
                                 root_weight=root_weight,
                                 bias=bias,
                                 sample_rate=sample_rate)
-        
+
         self.edge_index = None
         self.edge_attr = None
-        
+
     def update_graph(self, edge_index, edge_attr):
         self.edge_index = edge_index
         self.edge_attr = edge_attr
@@ -402,20 +410,20 @@ class ODE_func_autoencoder(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.num_layers = len(channels) - 1
-        
+
         self.encoder = nn.ModuleList()
         for i in range(self.num_layers):
             self.encoder.append(nn.Conv1d(channels[i], channels[i + 1], 1))
-        
+
         self.decoder = nn.ModuleList()
         for i in reversed(range(self.num_layers)):
             self.decoder.append(nn.Conv1d(channels[i + 1], channels[i], 1))
-    
+
     def forward(self, t, x):
         x = x.permute(0, 2, 1).contiguous()
         for layer in self.encoder:
             x = F.elu(layer(x))
-        
+
         for idx, layer in enumerate(self.decoder):
             if idx == len(self.decoder) - 1:
                 x = torch.tanh(layer(x))
@@ -430,11 +438,11 @@ class ODE_func_mix_autoencoder(nn.Module):
                  norm=True, root_weight=True, bias=True, sample_rate=None):
         super().__init__()
         self.num_layers = len(channels)
-        
+
         self.encoder = nn.ModuleList()
         for i in range(self.num_layers - 1):
             self.encoder.append(nn.Conv1d(channels[i], channels[i + 1], 1))
-        
+
         self.decoder = nn.ModuleList()
         for i in reversed(range(self.num_layers - 1)):
             self.decoder.append(nn.Conv1d(channels[i + 1], channels[i], 1))
@@ -453,23 +461,23 @@ class ODE_func_mix_autoencoder(nn.Module):
         )
         self.edge_index = None
         self.edge_attr = None
-        
+
     def update_graph(self, edge_index, edge_attr):
         self.edge_index = edge_index
         self.edge_attr = edge_attr
-    
+
     def forward(self, t, x):
         N, V, C = x.shape
         x = x.permute(0, 2, 1).contiguous()
         for layer in self.encoder:
             x = F.elu(layer(x))
-        
+
         x = x.permute(0, 2, 1).contiguous()
         x = x.view(N * V, -1)
         x = F.elu(self.middle(x, self.edge_index, self.edge_attr))
         x = x.view(N, V, -1)
         x = x.permute(0, 2, 1).contiguous()
-        
+
         for idx, layer in enumerate(self.decoder):
             if idx == len(self.decoder) - 1:
                 x = torch.tanh(layer(x))
@@ -617,12 +625,12 @@ class ODERNN(nn.Module):
 
         for t in range(1, T):
             last_h = last_h.view(N, V, -1)
-            
+
             if self.ode_func_type in ['conv', 'autoencoder', 'fcn']:
                 last_h = self.ode_solver(last_h, 1, steps=1)
             elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
                 last_h = self.ode_solver((last_h, edge_index, edge_attr), 1, steps=1)
-            
+
             last_h = last_h.view(N * V, -1)
             ode_out.append(last_h.view(1, N, V, C))
 
@@ -747,12 +755,12 @@ class GFilter(nn.Module):
 
         for t in range(1, T):
             z = z.view(N, V, -1)
-            
+
             if self.ode_func_type in ['conv', 'autoencoder', 'fcn']:
                 z = self.ode_solver(z, 1, steps=1)
             elif self.ode_func_type in ['gcn', 'mix_autoencoder']:
                 z = self.ode_solver((z, edge_index, edge_attr), 1, steps=1)
-            
+
             z = z.view(N * V, -1)
             ode_out.append(z.view(1, N, V, C))
 
@@ -778,6 +786,88 @@ class GFilter(nn.Module):
         gru_out = gru_out.permute(1, 2, 3, 0).contiguous()
         ode_out = ode_out.permute(1, 2, 3, 0).contiguous()
         return gru_out, ode_out
+
+
+class GFlattenFilter(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size, dim, is_open_spline=True,
+                 degree=1, norm=True, root_weight=True, bias=True, sample_rate=None,
+                 ode_func_type='conv', num_layers=1, method='rk4', rtol=1e-5, atol=1e-7, cell_type='GRU'):
+        super().__init__()
+        self.input_dim = 59
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.sample_rate = sample_rate
+        self.cell_type = cell_type
+
+        self.rtol = rtol
+        self.atol = atol
+        self.method = method
+
+        # Initialization network with a graph flatten
+        self.initial = InitFlatten(self.input_dim * self.hidden_dim, self.input_dim * self.hidden_dim)
+
+        # ODE Function to use, baseline fully-connected linear function
+        self.odefunc = ODE_func_fcn(self.input_dim * self.hidden_dim, self.hidden_dim * 2, num_layers=num_layers)
+
+        # ODE Solver to use
+        self.ode_solver = ODE_block(self.odefunc, ode_func_type=ode_func_type, method=method, rtol=rtol, atol=atol,
+                                    adjoint=True)
+
+        # Choose which RNNCell to use
+        if self.cell_type == 'GRU':
+            self.rnn_layer = GCGRUCell(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                kernel_size=self.kernel_size,
+                dim=dim,
+                is_open_spline=is_open_spline,
+                degree=degree,
+                norm=norm,
+                root_weight=root_weight,
+                bias=bias,
+                sample_rate=self.sample_rate
+            )
+        else:
+            self.rnn_layer = nn.GRUCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim)
+
+    def gru(self, x, z, edge_index, edge_attr):
+        """ Handles batched GRU calculations """
+        if self.cell_type == 'GRU':
+            output = self.rnn_layer(x=x, hidden=z, edge_index=edge_index, edge_attr=edge_attr)
+        else:
+            output = torch.zeros(x.shape)
+            for idx, (xb, zb) in enumerate(zip(x, z)):
+                output[idx] = self.rnn_layer(xb, zb)
+
+        return output
+
+    def forward(self, x, edge_index, edge_attr):
+        # Arrays to hold outputs of each portion
+        gru_out = []
+
+        # Permute dimensions to align time as first dimension
+        x = x.permute(3, 0, 1, 2).contiguous()
+        T, N, V, C = x.shape
+
+        # Flatten first graph and initialize the ODE
+        z = self.initial(x[0].view(N, V * C))
+        gru_out.append(self.gru(x[0], z.view(N, V, C), edge_index, edge_attr).view(1, N, V, C))
+
+        # Solve ODE over time
+        integration_time = torch.linspace(0, T-1, steps=T).to(device)
+        ode_out = torchdiffeq.odeint_adjoint(self.odefunc, z, integration_time, rtol=self.rtol, atol=self.atol, method=self.method)
+        ode_out = ode_out.view(T, N, V, C)
+
+        # Get output of GRU at each timestep
+        for xi, zi in zip(x[1:], ode_out[1:]):
+            out = self.gru(xi, zi, edge_index, edge_attr)
+            gru_out.append(out.view(1, N, V, C))
+
+        # Stack everything and permute back to original dimensions
+        gru_out = torch.cat(gru_out, dim=0)
+        gru_out = gru_out.permute(1, 2, 3, 0).contiguous()
+        ode_out = ode_out.permute(1, 2, 3, 0).contiguous()
+        return gru_out.to(device), ode_out
 
 
 class st_gcn(nn.Module):
@@ -828,7 +918,7 @@ class st_gcn(nn.Module):
             )
         else:
             raise NotImplementedError
-        
+
         self.residual = nn.Sequential(
             nn.Conv2d(
                 in_channels,
@@ -865,7 +955,7 @@ def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
     num_edges = int(edge_index.shape[1] / batch_size)
     edge_index = edge_index[:, 0:num_edges]
     edge_attr = edge_attr[0:num_edges, :]
-    
+
 
     sample_number = int(sample_rate * num_edges) if sample_rate is not None else num_edges
     selected_edges = torch.zeros(edge_index.shape[0], batch_size * T * sample_number).to(device)
