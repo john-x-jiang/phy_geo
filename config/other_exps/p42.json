@@ -1,12 +1,18 @@
 {
     "model_type": "physics",
-    "model_name": "p06",
-    "net_arch": "latent_ode",
-    "learning_rate": 5e-4,
-    "batch_size": 1,
+    "model_name": "p42",
+    "net_arch": "ode_rnn_embedding",
+    "learning_rate": 1e-4,
+    "batch_size": 16,
     "num_epochs": 500,
-    "latent_dim": 64,
+    "latent_dim": 128,
     "seq_len": 101,
+    "ode_func_type": "conv",
+    "num_layers": 2,
+    "method": "rk4",
+    "rtol": 1e-3,
+    "atol": 1e-5,
+    "cell_type": "RegularGRU",
     "nf": [
         1,
         8,
@@ -14,7 +20,8 @@
         32,
         64,
         128,
-        256
+        256,
+        512
     ],
     "makegraph": 0,
     "heart_torso": 1,
@@ -22,37 +29,30 @@
     "device": 0,
     "sample": 1,
     "subset": 1,
+    "gamma": 1,
     "phy_mode": 1,
     "smooth": 5e-3,
-    "graph_name": [
-        "z21_graclus_hier",
-        "z22_graclus_hier"
-    ],
+    "hidden": 0,
+    "decoder_out": 0,
+    "graph_method": "embedding",
     "heart_name": [
-        "z21",
-        "z22"
+        "heart"
     ],
     "num_meshfree": [
-        568,
         568
     ],
     "structures": [
-        "z21",
-        "z22"
-    ],
-    "val_graph": [
-        "z21_graclus_hier"
+        "heart"
     ],
     "val_heart": [
-        "z21"
+        "heart"
     ],
     "val_meshfree": [
         568
     ],
     "val_structures": [
-        "21"
+        "heart"
     ],
     "vae_latest": "m_best",
     "verbose_bo":1
 }
-  
