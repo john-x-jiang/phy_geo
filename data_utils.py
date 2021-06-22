@@ -89,10 +89,20 @@ class HeartGraphDataset(Dataset):
             self.label = torch.from_numpy(label_aha[index])
             self.heart = mesh_graph
             self.torso = mesh_graph_torso
-            self.data_heart = torch.from_numpy(dataset[0:-771, index]).float() * 1e-3
-            self.data_torso = torch.from_numpy(dataset[-771:, index]).float() * 1e-3
-            self.heart_cor = corMfree[0:-771, 0:3]
-            self.torso_cor = corMfree[-771:, 0:3]
+            self.data_heart = torch.from_numpy(dataset[0:-120, index]).float() * 1e-2
+            self.data_torso = torch.from_numpy(dataset[-120:, index]).float() * 1e-2
+            self.heart_cor = corMfree[0:-120, 0:3]
+            self.torso_cor = corMfree[-120:, 0:3]
+            print('heart data size: {}'.format(self.data_heart.shape[1]))
+            print('torso data size: {}'.format(self.data_torso.shape[1]))
+        elif self.heart_torso == 3:
+            self.label = torch.from_numpy(label_aha[index])
+            self.heart = mesh_graph
+            self.torso = mesh_graph_torso
+            self.data_heart = torch.from_numpy(dataset[0:-120, index]).float() * 1e-4
+            self.data_torso = torch.from_numpy(dataset[-120:, index]).float() * 1e-4
+            self.heart_cor = corMfree[0:-120, 0:3]
+            self.torso_cor = corMfree[-120:, 0:3]
             print('heart data size: {}'.format(self.data_heart.shape[1]))
             print('torso data size: {}'.format(self.data_torso.shape[1]))
 
@@ -118,7 +128,7 @@ class HeartGraphDataset(Dataset):
                 y=y
             )
             return sample
-        elif self.heart_torso == 1 or self.heart_torso == 2:
+        elif self.heart_torso == 1 or self.heart_torso == 2 or self.heart_torso == 3:
             sample = Data(
                 x=self.data_torso[:, [idx]],
                 y=self.data_heart[:, [idx]],

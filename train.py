@@ -330,7 +330,9 @@ def train(epoch, model, loss_function, phy_mode, smooth, hidden, optimizer, trai
             hid_loss += hid.item()
             optimizer.step()
             n += 1
-            utils.inline_print(f'Running epoch {epoch}, heart {heart_name}, batch {n}, Average loss for epoch: {str(train_loss / (n * batch_size))}')
+            strs = 'Running epoch {}, heart {}, batch {}, Average loss for epoch: {:05.5f}'.format(epoch, heart_name, n, train_loss / (n * batch_size))
+            # utils.inline_print(f'Running epoch {epoch}, heart {heart_name}, batch {n}, Average loss for epoch: {str(train_loss / (n * batch_size))}')
+            utils.inline_print(strs)
 
             if idx > int(sample * N / batch_size):
                 break
@@ -634,7 +636,7 @@ def pacing_site(u, cor, runs):
     # prediction
     u_new = np.roll(u, -1, axis=0)
     u_slope = (u_new - u)[:-1, :, :]
-    u_AT = np.argmax(u_slope, axis=0)
+    u_AT = np.argmin(u_slope, axis=0)
 
     u_AT = np.squeeze(u_AT)
     selected_num = 30
@@ -660,8 +662,8 @@ def eval_real_new(model, data_loaders, model_dir, corMfrees):
         num_meshfree = len(heart_cor)
 
         all_recons = np.empty((n, num_meshfree, seq_len))
-        if not os.path.exists(model_dir + '/data_directapply'):
-            os.makedirs(model_dir + '/data_directapply')
+        if not os.path.exists(model_dir + '/data'):
+            os.makedirs(model_dir + '/data')
 
         with torch.no_grad():
             for data in x_loader:
@@ -670,8 +672,8 @@ def eval_real_new(model, data_loaders, model_dir, corMfrees):
                 label = label.view(-1, 2)
                 label = label.detach().cpu().numpy()
                 label = np.squeeze(label)
-                heart_data = heart_data.to(device) * 1e-2
-                torso_data = torso_data.to(device) * 1e-2
+                heart_data = heart_data.to(device)
+                torso_data = torso_data.to(device)
                 rtn, y_, l_h, mu, logvar, h, h_ = model(torso_data, heart_name)
                 if type(rtn) == tuple:
                     recon_data, recon_data_var = rtn
@@ -681,20 +683,19 @@ def eval_real_new(model, data_loaders, model_dir, corMfrees):
                 recon_data = recon_data.detach().cpu().numpy()
                 x = heart_data.view(batch_size, -1, seq_len)
                 x = x.detach().cpu().numpy()
-                if label[1] == 55:
-                    continue
-                err, p_site_pred = pacing_site(x, heart_cor, label[1])
-                logs = 'Beat {}, Run {:02d}, err: {:05.5f}'.format(label[0], label[1], err)
+                # if label[1] == 55:
+                #     continue
+                
+                mse = utils.calc_msse(x, recon_data)
+                cct = utils.calc_corr_Pot(x, recon_data)
+                ccs = utils.calc_corr_Pot_spatial(x, recon_data)
+
+                # metric_stack = np.vstack((mse, ccs, cct))
+                # np.save(os.path.join(model_dir, 'data/metric_{}_{}.npy'.format(label[0], label[1])), metric_stack)
+
+                err, p_site_pred = pacing_site(recon_data, heart_cor, label[1])
+                logs = 'Beat {}, Run {:02d}, err: {:05.5f}, mse: {:05.5f}, cort: {:05.5f}, cors: {:05.5f}'.format(label[0], label[1], err, mse, cct, ccs)
                 print(logs)
-                with open(os.path.join(model_dir, 'log_err.txt'), 'a+') as f:
-                    f.write(logs + '\n')
-                cors = '{}, {}, {}'.format(p_site_pred[0], p_site_pred[1], p_site_pred[2])
-                # print(cors)
-                with open(os.path.join(model_dir, 'log_pacing.txt'), 'a+') as f:
-                    f.write(cors + '\n')
-                # at = activation_time(recon_data, x)
-                # logs = 'Beat {}, Run {:02d}, at: {:05.5f}'.format(label[0], label[1], at)
-                # print(logs)
-                # with open(os.path.join(model_dir, 'log_directapply.txt'), 'a+') as f:
+                # with open(os.path.join(model_dir, 'metric.txt'), 'a+') as f:
                 #     f.write(logs + '\n')
-                # scipy.io.savemat(model_dir + '/data_directapply/Tmp_{}_{}.mat'.format(label[0], label[1]), {'U': recon_data})
+                scipy.io.savemat(model_dir + '/data/Tmp_{}_{}.mat'.format(label[0], label[1]), {'U': recon_data})

@@ -320,7 +320,7 @@ class GraphPyramid():
         face = matFiles['face']
         edge_index = self.face2edge(face)
         heart.edge_index = torch.tensor(edge_index)
-        herat = self.transform(heart)
+        heart = self.transform(heart)
 
         # begin creating a graph hierarchy (downpooling operation)
         h_g = copy.deepcopy(heart)  # graph at the meshfree nodes level

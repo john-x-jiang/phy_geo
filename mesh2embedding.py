@@ -107,6 +107,8 @@ class GraphPyramid():
         for i in range(n):
             j = cluster[i] - 1
             P[i, j] = 1
+        # P = cluster
+        
         Pn = P / P.sum(axis=0)
         PnT = torch.from_numpy(np.transpose(Pn)).float()
 
@@ -276,7 +278,7 @@ class GraphPyramid():
         face = matFiles['face']
         edge_index = self.face2edge(face)
         heart.edge_index = torch.tensor(edge_index)
-        herat = self.transform(heart)
+        heart = self.transform(heart)
         h_g = copy.deepcopy(heart)  # graph at the meshfree nodes level
         # self.save_connection(h_g, name='h0', face=face)  # plot the graph
         h_gs.append(h_g)

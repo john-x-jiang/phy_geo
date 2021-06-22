@@ -134,7 +134,8 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
         model.set_physics(h_L, t_L, H, val_heart[0])
         if fine_tune:
             pre_model_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'experiments', vae_type, hparams.pre_model_name)
-            model.load_state_dict(torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location=device))
+            pre_model = torch.load(pre_model_dir + '/' + hparams.vae_latest, map_location=device)
+            model.load_state_dict(pre_model['state_dict'])
         
         model.to(device)
         # loss_function = net.loss_stgcnn
@@ -176,11 +177,30 @@ def learn_vae_heart_torso(hparams, checkpt, training=True, fine_tune=False):
 
 def real_data_new(hparams, training=False):
     vae_type = hparams.model_type
-    batch_size = hparams.batch_size
+    batch_size = hparams.batch_size if training else 1
     num_epochs = hparams.num_epochs
     seq_len = hparams.seq_len
     heart_torso = hparams.heart_torso
     anneal = hparams.anneal
+
+    # directory path for training and testing datasets
+    data_dir = osp.join(osp.dirname(osp.realpath('__file__')),
+                        'data', 'training')
+    phy_dir = osp.join(osp.dirname(osp.realpath('__file__')),
+                        'data', 'phy_vars')
+
+    # directory path to save the model/results
+    exp_dir = osp.join(osp.dirname(osp.realpath('__file__')),
+                         'experiments', vae_type, hparams.model_name)
+    model_dir = osp.join(osp.dirname(osp.realpath('__file__')),
+                         'experiments', vae_type, hparams.pre_model_name)
+    
+    if not osp.exists(exp_dir):
+        os.makedirs(exp_dir)
+    
+    if training:
+        copy2(net_path, exp_dir)
+    copy2(json_path, exp_dir)
 
     corMfrees = dict()
     train_loaders = dict()
@@ -190,41 +210,70 @@ def real_data_new(hparams, training=False):
     num_meshfrees = hparams.num_meshfree
     structures = hparams.structures
     sample = hparams.sample if training else 1
+    subset = hparams.subset if training else 1
+    learning_rate = hparams.learning_rate
+    epoch_start = 1
+    # subset = 1
 
-    data_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'training')
-    model_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'experiments', vae_type, hparams.pre_model_name)
-    exp_dir = osp.join(osp.dirname(osp.realpath('__file__')), 'experiments', vae_type, hparams.model_name)
-    if not osp.exists(exp_dir):
-        os.makedirs(exp_dir)
-    if training:
-        copy2(net_path, exp_dir)
-    copy2(json_path, exp_dir)
-
-    model = net.GraphTorsoHeart(hparams)
-
+    # initialize the model
+    if hparams.net_arch == 'phy':
+        model = net.GraphTorsoHeart(hparams, training=training)
+    elif hparams.net_arch in ['filter', 'flatten_filter']:
+        model = net.Graph_Filter(hparams, training=training)
+    elif hparams.net_arch == 'ode_rnn':
+        model = net.Graph_ODE_RNN(hparams, training=training)
+    elif hparams.net_arch == 'ode_rnn_embedding':
+        model = net.Graph_ODE_RNN_Embedding(hparams, training=training)
+    else:
+        raise NotImplementedError('The architecture {} is not implemented'.format(hparams.net_arch))
+    
     for heart_name, num_meshfree, structure in zip(heart_names, num_meshfrees, structures):
         root_dir = osp.join(data_dir, heart_name)
         graph_dir = osp.join(root_dir, 'raw/{}_{}'.format(heart_name, graph_method))
-        # Create graph and load graph information
-        # if training and hparams.makegraph:
-        #     g = mesh2.GraphPyramid(heart_name, structure, num_meshfree, seq_len)
-        #     g.make_graph()
-        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso)
+        graphparams = net.get_graphparams(graph_dir, device, batch_size, heart_torso, graph_method)
 
         # initialize datasets and dataloader
         train_dataset = HeartGraphDataset(root=root_dir, num_meshfree=num_meshfree, seq_len=seq_len,
                                         mesh_graph=graphparams["g"], mesh_graph_torso=graphparams["t_g"],
-                                        heart_torso=heart_torso, train=False)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=training)
+                                        heart_torso=heart_torso, train=True, subset=subset)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=training, drop_last=True)
         
         corMfrees[heart_name] = train_dataset.getCorMfree()
         train_loaders[heart_name] = train_loader
 
-        model.set_graphs(graphparams, heart_name)
+        # Also add test data if needed
+        test_dataset = HeartGraphDataset(root=root_dir, num_meshfree=num_meshfree, seq_len=seq_len,
+                                        mesh_graph=graphparams["g"], mesh_graph_torso=graphparams["t_g"],
+                                        heart_torso=heart_torso, train=False, subset=subset)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=training, drop_last=True)
+        test_loaders[heart_name] = test_loader
 
-    model.load_state_dict(torch.load(model_dir + '/' + hparams.vae_latest, map_location=device))
-    model = model.eval().to(device)
-    train.eval_real_new(model, train_loaders, exp_dir, corMfrees)
+        model.set_graphs(graphparams, heart_name)
+        
+        h_L, t_L, H = net.get_physics(phy_dir, heart_name, device)
+        model.set_physics(h_L, t_L, H, heart_name)
+
+    # checkpt = torch.load(model_dir + '/' + hparams.vae_latest, map_location=device)
+    # model.load_state_dict(checkpt['state_dict'])
+    # # model.load_state_dict(checkpt)
+    # model = model.eval().to(device)
+    # train.eval_real_new(model, train_loaders, exp_dir, corMfrees)
+    # train.eval_real_new(model, test_loaders, exp_dir, corMfrees)
+
+    for eps in range(80, 81):
+        ckpt_path = model_dir + '/m_{}'.format(eps)
+        if not osp.exists(ckpt_path):
+            continue
+        checkpt = torch.load(ckpt_path, map_location=device)
+
+        sub_dir = osp.join(exp_dir, 'cmp/{}'.format(eps))
+        if not osp.exists(sub_dir):
+            os.makedirs(sub_dir)
+
+        model.load_state_dict(checkpt['state_dict'])
+        model = model.eval().to(device)
+        train.eval_real_new(model, train_loaders, sub_dir, corMfrees)
+        train.eval_real_new(model, test_loaders, sub_dir, corMfrees)
 
 
 if __name__ == '__main__':

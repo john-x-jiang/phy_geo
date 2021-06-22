@@ -107,6 +107,7 @@ def calc_DC(u,x):
 
 def calc_corr_Pot(u, x):
     m, n, w = u.shape
+    # import ipdb; ipdb.set_trace()
     correlation_sum = 0
     count = 0
     for i in range(m):
@@ -122,6 +123,7 @@ def calc_corr_Pot(u, x):
 
 def calc_corr_Pot_spatial(u, x):
     m, n, w = u.shape
+    # import ipdb; ipdb.set_trace()
     correlation_sum = 0
     count = 0
     for i in range(m):

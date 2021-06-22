@@ -320,7 +320,7 @@ class GraphPyramid():
         face = matFiles['face']
         edge_index = self.face2edge(face)
         heart.edge_index = torch.tensor(edge_index)
-        herat = self.transform(heart)
+        heart = self.transform(heart)
         torso = self.pre_transform(torso)
         torso = self.transform(torso)
 

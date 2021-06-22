@@ -996,37 +996,6 @@ def loss_variation(recon_x, x, mu, logvar, *args):
     return BCE + anneal * KLD, BCE, KLD
 
 
-# def loss_bottleneck(mu_theta, logvar_theta, x, mu, logvar, *args):
-#     batch_size = args[0]
-#     seq_len = args[1]
-#     epoch = args[2]
-#     anneal = args[3]
-
-#     if anneal:
-#         if epoch < 50:
-#             anneal_param = 0
-#         elif epoch < 500:
-#             anneal_param = epoch / 500
-#         else:
-#             anneal_param = 1
-#     else:
-#         anneal_param = 1
-
-#     shape1 = np.prod(x.shape)
-
-#     diffSq = (x - mu_theta).pow(2)
-#     precis = torch.exp(-logvar_theta)
-
-#     BCE = 0.5 * torch.sum(logvar_theta + torch.mul(diffSq, precis))
-#     BCE /= shape1
-
-#     KLD = -0.5 * anneal_param * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-#     # Normalise by same number of elements as in reconstruction
-#     KLD /= shape1
-
-#     return BCE + anneal * KLD, BCE, KLD
-
-
 def load_graph(filename, heart_torso=0, graph_method=None):
     with open(filename + '.pickle', 'rb') as f:
         g = pickle.load(f)
@@ -1044,7 +1013,7 @@ def load_graph(filename, heart_torso=0, graph_method=None):
         # P54 = pickle.load(f)
         # P65 = pickle.load(f)
 
-        if heart_torso == 1 or heart_torso == 2:
+        if heart_torso == 1 or heart_torso == 2 or heart_torso == 3:
             t_g = pickle.load(f)
             t_g1 = pickle.load(f)
             t_g2 = pickle.load(f)
@@ -1090,7 +1059,7 @@ def load_graph(filename, heart_torso=0, graph_method=None):
         # P65 = torch.from_numpy(P65).float()
 
         return g, g1, g2, g3, g4, P10, P21, P32, P43, P01, P12, P23, P34
-    elif heart_torso == 1 or heart_torso == 2:
+    elif heart_torso == 1 or heart_torso == 2 or heart_torso == 3:
         t_P01 = t_P10 / t_P10.sum(axis=0)
         t_P12 = t_P21 / t_P21.sum(axis=0)
         t_P23 = t_P32 / t_P32.sum(axis=0)
@@ -1197,7 +1166,7 @@ def get_graphparams(filename, device, batch_size, heart_torso=0, graph_method=No
                     "P01": P01, "P12": P12, "P23": P23, "P34": P34, #"P45": P45, "P56": P56,
                     "P10": P10, "P21": P21, "P32": P32, "P43": P43, #"P54": P54, "P65": P65,
                     "P1n": P1n, "Pn1": Pn1, "num_nodes": num_nodes, "g": g, "bg": bg}
-    elif heart_torso == 1 or heart_torso == 2:
+    elif heart_torso == 1 or heart_torso == 2 or heart_torso == 3:
         t_num_nodes = [t_g.pos.shape[0], t_g1.pos.shape[0], t_g2.pos.shape[0], t_g3.pos.shape[0]]
         print(t_g)
         print(t_g1)
