@@ -3,7 +3,7 @@
 1. Check your cuda version. I've tested both `cu101` and `cu102`, and both of them are able to work.
 2. Python version >= `3.8` would be recommended.
 3. To install the python packages, change the variable `CUDA` in the script `req_torch_geo.sh`, then run it.
-4. Check the configuration under `./config/`. For now I use `p06.json` to make sure there is no bug in my code. Some important parameters:
+4. Check the configuration under `./config/`. Please use `seg04.json` for ODE-GCNN and `seg26.json` for ST-GCNN. Here are some important parameters:
    1. seq_len: the length of the input time sequence
    2. latent_dim: the dimension of the latent feature
    3. nf: the number of the feature in each layer
