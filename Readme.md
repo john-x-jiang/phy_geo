@@ -23,6 +23,7 @@
 # Supplementary material
 
 ## Visualization for simulation experiments
+Timelapse reconstruction for a single simulation case. Circled areas represent notable errors in reconstruction compared to ground truth.
 ![Simulation](./supplementary_material/SimuFig.png)
 
 ## Visualization for clinical experiments: healthy cases
