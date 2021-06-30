@@ -24,3 +24,9 @@
 
 ## Visualization for simulation experiments
 ![Simulation](./supplementary_material/SimuFig.png)
+
+## Visualization for clinical experiments: healthy cases
+![Healthy](./supplementary_material/healthy.png)
+
+## Visualization for clinical experiments: scar cases
+![Scar](./supplementary_material/scar.png)
