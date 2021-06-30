@@ -26,8 +26,9 @@
 Timelapse reconstruction for a single simulation case. Circled areas represent notable errors in reconstruction compared to ground truth.
 ![Simulation](./supplementary_material/SimuFig.png)
 
-## Visualization for clinical experiments: healthy cases
+## Visualization for clinical experiments
+Healthy cases
 ![Healthy](./supplementary_material/healthy.png)
 
-## Visualization for clinical experiments: scar cases
+Post-infarction cases
 ![Scar](./supplementary_material/scar.png)
