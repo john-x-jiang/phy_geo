@@ -19,3 +19,8 @@
    ```bash
    python main.py --config seg04 --stage 2
    ```
+
+# Supplementary material
+
+## Visualization for simulation experiments
+![Simulation](./supplementary_material/SimuFig.png)
