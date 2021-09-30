@@ -1,3 +1,7 @@
+<h1 align='center'>Label-Free Physics-Informed Image Sequence Reconstruction with Disentangled Spatial-Temporal Modeling <br>
+   [<a href='https://miccai2021.org/openaccess/paperlinks/2021/09/01/265-Paper1581.html'>MICCAI</a>, <a href='https://link.springer.com/chapter/10.1007%2F978-3-030-87231-1_35'>Paper</a>]</h2>
+<p>This repository holds the experiments and models as explored in the work, "Label-Free Physics-Informed Image Sequence Reconstruction with Disentangled Spatial-Temporal Modeling." We provide guidance on training the models, as well as supplementary experiments and visualizations.</p>
+
 # Running guidance
 
 1. Check your cuda version. I've tested both `cu101` and `cu102`, and both of them are able to work.
